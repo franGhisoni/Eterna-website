@@ -66,14 +66,14 @@ export default function HomePage() {
 
   const handleWhatsAppClick = () => {
     const message = encodeURIComponent(
-      "Hola! Me gustaría agendar una cita en Eterna - Centro de Estética del Instituto Ghisoni. Código: 20FFOPEN",
+      "Hola! Quisiera información sobre turnos y disponibilidad en Eterna. ¿Me pasás opciones y horarios? Gracias!",
     )
     window.open(`https://wa.me/541140420769?text=${message}`, "_blank")
   }
 
   const handlePromoWhatsAppClick = () => {
     const message = encodeURIComponent(
-      "Hola! Me interesa la promoción 2x1 para el 03/09 con mi amiga/pareja en Eterna - Centro de Estética. Código: 20FFOPEN",
+      "Hola! Me interesa la promoción 2x1. ¿Qué disponibilidad hay y cómo reservo el turno?",
     )
     window.open(`https://wa.me/541140420769?text=${message}`, "_blank")
   }
@@ -116,7 +116,7 @@ export default function HomePage() {
             alt="Eterna logo"
             className="h-24 md:h-32 lg:h-40 mx-auto mb-6 drop-shadow-lg"
           />
-          <h2 className="text-7xl md:text-9xl lg:text-[12rem] font-berlys text-eterna-beige mb-4 text-shadow text-balance tracking-wider">
+          <h2 className="text-7xl md:text-9xl lg:text-[12rem] font-berlys ot-ligs text-eterna-beige mb-4 text-shadow text-balance tracking-wider">
             eterna
           </h2>
 
