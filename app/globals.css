@@ -10,6 +10,7 @@
   font-weight: normal;
   font-style: normal;
   font-display: swap;
+  font-feature-settings: "liga" 1, "clig" 1, "calt" 1, "dlig" 1;
 }
 
 :root {
@@ -184,15 +185,12 @@
 
 /* Enable OpenType ligatures and stylistic alternates for logo text */
 .ot-ligs {
+  font-feature-settings: "liga" 1, "clig" 1, "calt" 1, "dlig" 1,
+    "ss01" 1, "ss02" 1, "ss03" 1, "salt" 1, "swsh" 1;
+  -webkit-font-feature-settings: "liga" 1, "clig" 1, "calt" 1, "dlig" 1,
+    "ss01" 1, "ss02" 1, "ss03" 1, "salt" 1, "swsh" 1;
+  -moz-font-feature-settings: "liga" 1, "clig" 1, "calt" 1, "dlig" 1,
+    "ss01" 1, "ss02" 1, "ss03" 1, "salt" 1, "swsh" 1;
   font-variant-ligatures: common-ligatures discretionary-ligatures contextual;
-  font-feature-settings:
-    "liga" 1,
-    "clig" 1,
-    "calt" 1,
-    "dlig" 1,
-    "ss01" 1,
-    "ss02" 1,
-    "ss03" 1,
-    "salt" 1,
-    "swsh" 1;
+  text-rendering: optimizeLegibility;
 }
