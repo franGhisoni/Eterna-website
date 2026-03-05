@@ -181,18 +181,3 @@
 .border-eterna-beige {
   border-color: #f5e5d1;
 }
-
-/* Enable OpenType ligatures and stylistic alternates for logo text */
-.ot-ligs {
-  font-variant-ligatures: common-ligatures discretionary-ligatures contextual;
-  font-feature-settings:
-    "liga" 1,
-    "clig" 1,
-    "calt" 1,
-    "dlig" 1,
-    "ss01" 1,
-    "ss02" 1,
-    "ss03" 1,
-    "salt" 1,
-    "swsh" 1;
-}

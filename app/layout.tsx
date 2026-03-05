@@ -7,14 +7,9 @@ import { Suspense } from "react"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "Eterna - Centro de Estética y Depilación de Instituto Ghisoni",
+  title: "Instituto Ghisoni - Centro de Estética y Depilación",
   description: "Centro de estética y depilación del Instituto Ghisoni de ginecología y fertilidad en Pereira",
   generator: "v0.app",
-  icons: {
-    icon: "/eterna-logo.png",
-    shortcut: "/eterna-logo.png",
-    apple: "/eterna-logo.png",
-  },
 }
 
 export default function RootLayout({
