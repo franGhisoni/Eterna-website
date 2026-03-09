@@ -54,7 +54,7 @@ export default function HomePage() {
   const [isVisible] = useState(true)
   const [scrollY, setScrollY] = useState(0)
 
-  
+
 
   useEffect(() => {
     const handleScroll = () => {
@@ -130,14 +130,17 @@ export default function HomePage() {
           </p>
 
           <div className="bg-eterna-bordo/20 backdrop-blur-md shadow-xl shadow-eterna-bordo/30 rounded-xl p-6 mb-8 max-w-lg mx-auto">
-            <h3 className="text-2xl font-sans font-semibold text-eterna-beige mb-3">¡Promoción Especial!</h3>
+            <h3 className="text-2xl font-sans font-semibold text-eterna-beige mb-3">
+              {process.env.NEXT_PUBLIC_PROMO_TITLE || "¡Promoción Especial!"}
+            </h3>
             <p className="text-eterna-beige/90 text-lg mb-4 font-sans">
               Agenda tu turno para el{" "}
-              <span className="font-medium text-eterna-bordo bg-eterna-beige px-2 py-1 rounded">03/09</span>
+              <span className="font-medium text-eterna-bordo bg-eterna-beige px-2 py-1 rounded">
+                {process.env.NEXT_PUBLIC_PROMO_DATE || "03/09"}
+              </span>
             </p>
             <p className="text-xl font-medium text-eterna-beige mb-4 font-sans">
-              🎉 <span className="text-eterna-bordo bg-eterna-beige px-2 py-1 rounded font-bold">2x1</span> con tu amiga
-              o pareja
+              🎉 <span className="text-eterna-bordo bg-eterna-beige px-2 py-1 rounded font-bold">{process.env.NEXT_PUBLIC_PROMO_HIGHLIGHT || "2x1"}</span> {process.env.NEXT_PUBLIC_PROMO_DESC || "con tu amiga o pareja"}
             </p>
             <Button
               onClick={handlePromoWhatsAppClick}
@@ -159,9 +162,9 @@ export default function HomePage() {
 
             <div className="bg-eterna-beige/10 backdrop-blur-subtle shadow-lg shadow-eterna-bordo/20 rounded-lg px-6 py-3">
               <p className="text-eterna-beige font-medium font-sans">
-                Código: <span className="text-eterna-bordo bg-eterna-beige px-2 py-1 rounded font-bold">20FFOPEN</span>
+                Código: <span className="text-eterna-bordo bg-eterna-beige px-2 py-1 rounded font-bold">{process.env.NEXT_PUBLIC_DISCOUNT_CODE || "20FFOPEN"}</span>
               </p>
-              <p className="text-eterna-beige/80 text-sm font-sans">20% descuento primera sesión</p>
+              <p className="text-eterna-beige/80 text-sm font-sans">{process.env.NEXT_PUBLIC_DISCOUNT_DESC || "20% descuento primera sesión"}</p>
             </div>
           </div>
         </div>
@@ -178,41 +181,41 @@ export default function HomePage() {
             <div className="grid md:grid-cols-3 gap-8">
               <RevealOnScroll distance="translate-y-32">
                 <div className="bg-eterna-beige/5 backdrop-blur-subtle shadow-lg shadow-eterna-bordo/10 rounded-lg p-6 text-center hover:bg-eterna-beige/10 transition-all duration-300">
-                <Sparkles className="h-12 w-12 text-eterna-bordo mx-auto mb-4" />
-                <h4 className="text-xl font-sans font-semibold text-eterna-beige mb-3">Depilación Láser</h4>
-                <p className="text-eterna-beige/80 font-light font-sans">
-                  Tecnología de última generación para resultados duraderos y seguros
-                </p>
+                  <Sparkles className="h-12 w-12 text-eterna-bordo mx-auto mb-4" />
+                  <h4 className="text-xl font-sans font-semibold text-eterna-beige mb-3">Depilación Láser</h4>
+                  <p className="text-eterna-beige/80 font-light font-sans">
+                    Tecnología de última generación para resultados duraderos y seguros
+                  </p>
                 </div>
               </RevealOnScroll>
 
               <RevealOnScroll delay={100} distance="translate-y-32">
                 <div className="bg-eterna-beige/5 backdrop-blur-subtle shadow-lg shadow-eterna-bordo/10 rounded-lg p-6 text-center hover:bg-eterna-beige/10 transition-all duration-300 group relative overflow-hidden">
-                <Star className="h-12 w-12 text-eterna-bordo mx-auto mb-4 group-hover:blur-sm transition-all duration-300" />
-                <h4 className="text-xl font-sans font-semibold text-eterna-beige mb-3 group-hover:blur-sm transition-all duration-300">
-                  Tratamientos Faciales
-                </h4>
-                <p className="text-eterna-beige/80 font-light font-sans group-hover:blur-sm transition-all duration-300">
-                  Rejuvenecimiento y cuidado personalizado para tu piel
-                </p>
-                <div className="absolute inset-0 bg-eterna-bordo/90 backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300">
-                  <p className="text-white text-2xl font-sans font-bold">Pronto Disponible</p>
-                </div>
+                  <Star className="h-12 w-12 text-eterna-bordo mx-auto mb-4 group-hover:blur-sm transition-all duration-300" />
+                  <h4 className="text-xl font-sans font-semibold text-eterna-beige mb-3 group-hover:blur-sm transition-all duration-300">
+                    Tratamientos Faciales
+                  </h4>
+                  <p className="text-eterna-beige/80 font-light font-sans group-hover:blur-sm transition-all duration-300">
+                    Rejuvenecimiento y cuidado personalizado para tu piel
+                  </p>
+                  <div className="absolute inset-0 bg-eterna-bordo/90 backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300">
+                    <p className="text-white text-2xl font-sans font-bold">Pronto Disponible</p>
+                  </div>
                 </div>
               </RevealOnScroll>
 
               <RevealOnScroll delay={200} distance="translate-y-32">
                 <div className="bg-eterna-beige/5 backdrop-blur-subtle shadow-lg shadow-eterna-bordo/10 rounded-lg p-6 text-center hover:bg-eterna-beige/10 transition-all duration-300 group relative overflow-hidden">
-                <Heart className="h-12 w-12 text-eterna-bordo mx-auto mb-4 group-hover:blur-sm transition-all duration-300" />
-                <h4 className="text-xl font-sans font-semibold text-eterna-beige mb-3 group-hover:blur-sm transition-all duration-300">
-                  Cuidado Corporal
-                </h4>
-                <p className="text-eterna-beige/80 font-light font-sans group-hover:blur-sm transition-all duration-300">
-                  Tratamientos integrales para tu bienestar y belleza
-                </p>
-                <div className="absolute inset-0 bg-eterna-bordo/90 backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300">
-                  <p className="text-white text-2xl font-sans font-bold">Pronto Disponible</p>
-                </div>
+                  <Heart className="h-12 w-12 text-eterna-bordo mx-auto mb-4 group-hover:blur-sm transition-all duration-300" />
+                  <h4 className="text-xl font-sans font-semibold text-eterna-beige mb-3 group-hover:blur-sm transition-all duration-300">
+                    Cuidado Corporal
+                  </h4>
+                  <p className="text-eterna-beige/80 font-light font-sans group-hover:blur-sm transition-all duration-300">
+                    Tratamientos integrales para tu bienestar y belleza
+                  </p>
+                  <div className="absolute inset-0 bg-eterna-bordo/90 backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300">
+                    <p className="text-white text-2xl font-sans font-bold">Pronto Disponible</p>
+                  </div>
                 </div>
               </RevealOnScroll>
             </div>
@@ -229,19 +232,19 @@ export default function HomePage() {
             <div className="grid md:grid-cols-2 gap-8 mb-12">
               <RevealOnScroll distance="translate-y-32">
                 <div className="bg-eterna-beige/10 backdrop-blur-lg shadow-lg shadow-eterna-bordo/20 rounded-lg p-6">
-                <MapPin className="h-8 w-8 text-eterna-bordo mx-auto mb-4" />
-                <h4 className="text-lg font-sans font-semibold text-eterna-beige mb-2">Ubicación</h4>
-                <p className="text-eterna-beige/90 font-light font-sans">Pereyra Lucena 575</p>
-                <p className="text-eterna-beige/80 text-sm mt-1 font-sans">Lomas de Zamora</p>
+                  <MapPin className="h-8 w-8 text-eterna-bordo mx-auto mb-4" />
+                  <h4 className="text-lg font-sans font-semibold text-eterna-beige mb-2">Ubicación</h4>
+                  <p className="text-eterna-beige/90 font-light font-sans">Pereyra Lucena 575</p>
+                  <p className="text-eterna-beige/80 text-sm mt-1 font-sans">Lomas de Zamora</p>
                 </div>
               </RevealOnScroll>
 
               <RevealOnScroll delay={100} distance="translate-y-32">
                 <div className="bg-eterna-beige/10 backdrop-blur-lg shadow-lg shadow-eterna-bordo/20 rounded-lg p-6">
-                <Clock className="h-8 w-8 text-eterna-bordo mx-auto mb-4" />
-                <h4 className="text-lg font-sans font-semibold text-eterna-beige mb-2">Horarios</h4>
-                <p className="text-eterna-beige/90 font-light font-sans">Lun - Vie: 10:00 - 19:00</p>
-                <p className="text-eterna-beige/80 text-sm font-sans">Sábados cerrado</p>
+                  <Clock className="h-8 w-8 text-eterna-bordo mx-auto mb-4" />
+                  <h4 className="text-lg font-sans font-semibold text-eterna-beige mb-2">Horarios</h4>
+                  <p className="text-eterna-beige/90 font-light font-sans">Lun - Vie: 10:00 - 19:00</p>
+                  <p className="text-eterna-beige/80 text-sm font-sans">Sábados cerrado</p>
                 </div>
               </RevealOnScroll>
             </div>
