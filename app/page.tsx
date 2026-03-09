@@ -98,7 +98,13 @@ export default function HomePage() {
           <h1 className="text-2xl md:text-3xl font-sans text-eterna-beige text-shadow leading-none relative -top-1 md:-top-2">Instituto Ghisoni</h1>
         </div>
 
-        <div>
+        <div className="flex items-center gap-4">
+          <a href="#servicios" className="hidden sm:inline text-eterna-beige/90 hover:text-eterna-beige transition-colors font-sans">
+            Servicios
+          </a>
+          <a href="#contacto" className="hidden sm:inline text-eterna-beige/90 hover:text-eterna-beige transition-colors font-sans">
+            Contacto
+          </a>
           <Button
             onClick={handleWhatsAppClick}
             className="bg-eterna-beige/10 backdrop-blur-subtle shadow-lg shadow-eterna-bordo/20 text-eterna-beige hover:bg-eterna-beige/20 transition-all duration-300"
@@ -171,7 +177,7 @@ export default function HomePage() {
       </div>
 
       {/* Services Section */}
-      <div className="relative z-10 bg-black/40 backdrop-blur-sm py-16 px-6">
+      <div id="servicios" className="relative z-10 bg-black/40 backdrop-blur-sm py-16 px-6">
         <div className="max-w-6xl mx-auto">
           <div>
             <h3 className="text-3xl md:text-4xl font-berlys text-eterna-beige text-center mb-12 text-shadow">
@@ -224,7 +230,7 @@ export default function HomePage() {
       </div>
 
       {/* Contact Section */}
-      <div className="relative z-10 py-16 px-6">
+      <div id="contacto" className="relative z-10 py-16 px-6">
         <div className="max-w-4xl mx-auto text-center">
           <div>
             <h3 className="text-3xl md:text-4xl font-berlys text-eterna-beige mb-8 text-shadow">Visítanos</h3>
@@ -293,6 +299,18 @@ export default function HomePage() {
           </div>
         </div>
       </div>
+
+      <a
+        href={`https://wa.me/541140420769?text=${encodeURIComponent(
+          "Hola! Quisiera información sobre turnos y disponibilidad en Eterna. ¿Me pasás opciones y horarios? Gracias!"
+        )}`}
+        target="_blank"
+        rel="noreferrer"
+        className="fixed bottom-6 right-6 z-20 rounded-full bg-eterna-bordo text-eterna-beige p-4 shadow-lg hover:scale-105 transition-transform"
+        aria-label="WhatsApp"
+      >
+        <Phone className="h-6 w-6" />
+      </a>
 
       {/* Footer */}
       <footer className="relative z-10 bg-black/80 backdrop-blur-sm py-8 px-6">
