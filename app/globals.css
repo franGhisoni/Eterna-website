@@ -14,27 +14,24 @@
 }
 
 :root {
-  --background: oklch(0.05 0 0);
-  --foreground: oklch(0.98 0 0);
-  --card: oklch(0.08 0 0);
-  --card-foreground: oklch(0.98 0 0);
-  --popover: oklch(0.08 0 0);
-  --popover-foreground: oklch(0.98 0 0);
-  /* Updated primary color to Eterna bordo #9F1B1C */
+  --background: #f5e5d1;
+  --foreground: #1f1f1f;
+  --card: #ffffff;
+  --card-foreground: #1f1f1f;
+  --popover: #ffffff;
+  --popover-foreground: #1f1f1f;
   --primary: #9f1b1c;
-  --primary-foreground: oklch(0.98 0 0);
-  /* Updated secondary color to Eterna beige #F5E5D1 */
+  --primary-foreground: #ffffff;
   --secondary: #f5e5d1;
   --secondary-foreground: #9f1b1c;
-  --muted: oklch(0.15 0 0);
-  --muted-foreground: oklch(0.7 0 0);
-  /* Updated accent color to match primary */
+  --muted: #efe5d6;
+  --muted-foreground: #6b5a4b;
   --accent: #9f1b1c;
-  --accent-foreground: oklch(0.98 0 0);
+  --accent-foreground: #ffffff;
   --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.2 0 0);
-  --input: oklch(0.15 0 0);
+  --destructive-foreground: #ffffff;
+  --border: #e4d7c5;
+  --input: #ffffff;
   --ring: #9f1b1c;
   --chart-1: #9f1b1c;
   --chart-2: #f5e5d1;
@@ -42,13 +39,13 @@
   --chart-4: oklch(0.8 0.12 300);
   --chart-5: oklch(0.75 0.14 340);
   --radius: 0.5rem;
-  --sidebar: oklch(0.08 0 0);
-  --sidebar-foreground: oklch(0.98 0 0);
+  --sidebar: #f5e5d1;
+  --sidebar-foreground: #1f1f1f;
   --sidebar-primary: #9f1b1c;
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.12 0 0);
-  --sidebar-accent-foreground: oklch(0.98 0 0);
-  --sidebar-border: oklch(0.2 0 0);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #efe5d6;
+  --sidebar-accent-foreground: #1f1f1f;
+  --sidebar-border: #e4d7c5;
   --sidebar-ring: #9f1b1c;
 }
 
