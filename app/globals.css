@@ -1,94 +1,65 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
 
 @custom-variant dark (&:is(.dark *));
 
-/* Adding Berlys font face */
 @font-face {
-  font-family: "Berlys";
+  font-family: Berlys;
   src: url("/fonts/Berlys.ttf") format("truetype");
-  font-weight: normal;
-  font-style: normal;
   font-display: swap;
-  font-feature-settings: "liga" 1, "clig" 1, "calt" 1, "dlig" 1;
 }
 
+/* Premium color palette - Nude, Rosé, Bordó */
 :root {
-  --background: #f5e5d1;
-  --foreground: #1f1f1f;
-  --card: #ffffff;
-  --card-foreground: #1f1f1f;
+  --background: #faf1e8;  /* Nude claro - RGB(250, 241, 232) */
+  --foreground: #3c2f2f;  /* Marrón oscuro elegante */
+  --card: #ffffff;  /* Blanco puro para tarjetas */
+  --card-foreground: #3c2f2f;
   --popover: #ffffff;
-  --popover-foreground: #1f1f1f;
-  --primary: #9f1b1c;
-  --primary-foreground: #ffffff;
-  --secondary: #f5e5d1;
-  --secondary-foreground: #9f1b1c;
-  --muted: #efe5d6;
-  --muted-foreground: #6b5a4b;
-  --accent: #9f1b1c;
-  --accent-foreground: #ffffff;
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: #ffffff;
-  --border: #e4d7c5;
-  --input: #ffffff;
-  --ring: #9f1b1c;
-  --chart-1: #9f1b1c;
-  --chart-2: #f5e5d1;
-  --chart-3: oklch(0.6 0.1 240);
-  --chart-4: oklch(0.8 0.12 300);
-  --chart-5: oklch(0.75 0.14 340);
-  --radius: 0.5rem;
-  --sidebar: #f5e5d1;
-  --sidebar-foreground: #1f1f1f;
-  --sidebar-primary: #9f1b1c;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #efe5d6;
-  --sidebar-accent-foreground: #1f1f1f;
-  --sidebar-border: #e4d7c5;
-  --sidebar-ring: #9f1b1c;
+  --popover-foreground: #3c2f2f;
+  --primary: #882626;  /* Bordó Eterna */
+  --primary-foreground: #faf1e8;
+  --secondary: #f5e5d1;  /* Beige rosé */
+  --secondary-foreground: #882626;
+  --muted: #f8f4f0;  /* Nude muy suave */
+  --muted-foreground: #8b7355;  /* Beige medio */
+  --accent: #d4a574;  /* Dorado rosa suave */
+  --accent-foreground: #3c2f2f;
+  --destructive: #c53030;
+  --destructive-foreground: #faf1e8;
+  --border: #e8dfd5;  /* Beige claro para bordes */
+  --input: #f8f4f0;
+  --ring: #882626;
+  --radius: 0.75rem;  /* Bordes más suaves */
 }
 
 .dark {
-  --background: oklch(0.05 0 0);
-  --foreground: oklch(0.98 0 0);
-  --card: oklch(0.08 0 0);
-  --card-foreground: oklch(0.98 0 0);
-  --popover: oklch(0.08 0 0);
-  --popover-foreground: oklch(0.98 0 0);
-  --primary: #9f1b1c;
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: #f5e5d1;
-  --secondary-foreground: #9f1b1c;
-  --muted: oklch(0.15 0 0);
-  --muted-foreground: oklch(0.7 0 0);
-  --accent: #9f1b1c;
-  --accent-foreground: oklch(0.98 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.2 0 0);
-  --input: oklch(0.15 0 0);
-  --ring: #9f1b1c;
-  --chart-1: #9f1b1c;
-  --chart-2: #f5e5d1;
-  --chart-3: oklch(0.6 0.1 240);
-  --chart-4: oklch(0.8 0.12 300);
-  --chart-5: oklch(0.75 0.14 340);
-  --sidebar: oklch(0.08 0 0);
-  --sidebar-foreground: oklch(0.98 0 0);
-  --sidebar-primary: #9f1b1c;
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.12 0 0);
-  --sidebar-accent-foreground: oklch(0.98 0 0);
-  --sidebar-border: oklch(0.2 0 0);
-  --sidebar-ring: #9f1b1c;
+  --background: #1a1a1a;
+  --foreground: #faf1e8;
+  --card: #2d2d2d;
+  --card-foreground: #faf1e8;
+  --popover: #2d2d2d;
+  --popover-foreground: #faf1e8;
+  --primary: #882626;
+  --primary-foreground: #faf1e8;
+  --secondary: #3c2f2f;
+  --secondary-foreground: #faf1e8;
+  --muted: #3c2f2f;
+  --muted-foreground: #d4a574;
+  --accent: #d4a574;
+  --accent-foreground: #faf1e8;
+  --destructive: #c53030;
+  --destructive-foreground: #faf1e8;
+  --border: #3c2f2f;
+  --input: #3c2f2f;
+  --ring: #882626;
 }
 
 @theme inline {
-  /* Adding Berlys as primary font */
-  --font-berlys: "Berlys", serif;
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-serif: "Playfair Display", serif;
+  --font-sans: "Inter", sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -108,23 +79,10 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
 }
 
 @layer base {
@@ -136,58 +94,123 @@
   }
 }
 
-/* Adding Berlys font utility class */
-.font-berlys {
-  font-family: "Berlys", serif;
+@layer utilities {
+  .font-berlys {
+    font-family: Berlys, serif;
+  }
+
+  .liquid-glass {
+    --lg-bg: rgba(255, 255, 255, 0.16);
+    --lg-border: rgba(255, 255, 255, 0.25);
+    --lg-blur: 14px;
+    position: relative;
+    overflow: hidden;
+    background: var(--lg-bg);
+    border: 1px solid var(--lg-border);
+    -webkit-backdrop-filter: blur(var(--lg-blur));
+    backdrop-filter: blur(var(--lg-blur));
+  }
+
+  .liquid-glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.18), rgba(255, 242, 234, 0.10), rgba(255, 255, 255, 0.18));
+    opacity: 0.55;
+    pointer-events: none;
+  }
+
+  .liquid-glass::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.45), transparent 55%),
+      radial-gradient(circle at 90% 0%, rgba(255, 231, 223, 0.25), transparent 45%),
+      radial-gradient(circle at 85% 0%, rgba(136, 38, 38, 0.10), transparent 60%);
+    opacity: 0.55;
+    pointer-events: none;
+  }
+
+  .liquid-glass > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .liquid-glass-strong {
+    --lg-bg: rgba(255, 255, 255, 0.20);
+    --lg-border: rgba(255, 255, 255, 0.28);
+    --lg-blur: 16px;
+  }
+
+  .liquid-glass-soft {
+    --lg-bg: rgba(255, 255, 255, 0.12);
+    --lg-border: rgba(255, 255, 255, 0.22);
+    --lg-blur: 12px;
+  }
 }
 
-/* Custom styles for video background */
-.video-overlay {
-  background: linear-gradient(135deg, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.4) 50%, rgba(0, 0, 0, 0.8) 100%);
+/* Premium utility classes */
+.text-premium {
+  color: #3c2f2f;
 }
 
-.text-shadow {
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+.bg-premium-light {
+  background-color: #faf1e8;
 }
 
-.backdrop-blur-subtle {
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+.bg-premium-card {
+  background-color: #ffffff;
 }
 
-/* Adding Eterna brand colors as utility classes */
-.text-eterna-bordo {
-  color: #9f1b1c;
+.border-premium {
+  border-color: #e8dfd5;
 }
 
-.bg-eterna-bordo {
-  background-color: #9f1b1c;
+/* Smooth transitions for premium feel */
+.transition-premium {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.text-eterna-beige {
-  color: #f5e5d1;
+/* Premium shadow effects */
+.shadow-premium {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 }
 
-.bg-eterna-beige {
-  background-color: #f5e5d1;
+.shadow-premium-lg {
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
 }
 
-.border-eterna-bordo {
-  border-color: #9f1b1c;
+.reveal {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  transition:
+    opacity 800ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 800ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  will-change: opacity, transform;
 }
 
-.border-eterna-beige {
-  border-color: #f5e5d1;
+.reveal-left {
+  transform: translate3d(-16px, 0, 0);
 }
 
-/* Enable OpenType ligatures and stylistic alternates for logo text */
-.ot-ligs {
-  font-feature-settings: "liga" 1, "clig" 1, "calt" 1, "dlig" 1,
-    "ss01" 1, "ss02" 1, "ss03" 1, "salt" 1, "swsh" 1;
-  -webkit-font-feature-settings: "liga" 1, "clig" 1, "calt" 1, "dlig" 1,
-    "ss01" 1, "ss02" 1, "ss03" 1, "salt" 1, "swsh" 1;
-  -moz-font-feature-settings: "liga" 1, "clig" 1, "calt" 1, "dlig" 1,
-    "ss01" 1, "ss02" 1, "ss03" 1, "salt" 1, "swsh" 1;
-  font-variant-ligatures: common-ligatures discretionary-ligatures contextual;
-  text-rendering: optimizeLegibility;
+.reveal-right {
+  transform: translate3d(16px, 0, 0);
+}
+
+.reveal-scale {
+  transform: scale(0.98);
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }
