@@ -38,7 +38,9 @@ export function AvailabilityCalendar({ availableDays, subtitle = "Reservá tu lu
   const { cells, daysInMonth } = buildMonthGrid(year, monthIndex)
 
   const monthLabel = formatMonthTitle(new Date(year, monthIndex, 1))
-  const availableSet = new Set(availableDays.filter((d) => d >= 1 && d <= daysInMonth))
+  const today = now.getDate()
+  const availableSet = new Set(availableDays.filter((d) => d >= today && d <= daysInMonth))
+  const hasAvailability = availableSet.size > 0
 
   const buildWhatsAppUrl = (day: number) => {
     const date = new Date(year, monthIndex, day)
@@ -60,9 +62,11 @@ export function AvailabilityCalendar({ availableDays, subtitle = "Reservá tu lu
           <div>
             <p className="text-xs tracking-[0.28em] uppercase text-premium/60">Disponibilidad</p>
             <h3 className="mt-2 font-serif text-xl sm:text-2xl font-bold text-premium leading-tight">
-              Próximas fechas disponibles
+              {hasAvailability ? "Próximas fechas disponibles" : "Consultá próximas fechas"}
             </h3>
-            <p className="mt-1.5 text-sm text-premium/70">{subtitle}</p>
+            <p className="mt-1.5 text-sm text-premium/70">
+              {hasAvailability ? subtitle : "Escribinos para conocer la disponibilidad actual."}
+            </p>
           </div>
 
           <div className="hidden sm:flex items-center gap-2 rounded-full bg-white/12 border border-white/20 px-3 py-2">
@@ -100,7 +104,7 @@ export function AvailabilityCalendar({ availableDays, subtitle = "Reservá tu lu
                       type="button"
                       disabled={!isAvailable}
                       aria-disabled={!isAvailable}
-                      aria-label={isAvailable ? `Día ${day} disponible` : `Día ${day} no disponible`}
+                      aria-label={isAvailable ? `${new Intl.DateTimeFormat("es-AR", { dateStyle: "full" }).format(new Date(year, monthIndex, day))}, disponible` : `${new Intl.DateTimeFormat("es-AR", { dateStyle: "full" }).format(new Date(year, monthIndex, day))}, no disponible`}
                       onClick={() => {
                         if (!isAvailable) return
                         window.open(buildWhatsAppUrl(day), "_blank", "noopener,noreferrer")
@@ -138,10 +142,10 @@ export function AvailabilityCalendar({ availableDays, subtitle = "Reservá tu lu
           <div className="flex items-center justify-between rounded-2xl bg-white/10 border border-white/18 px-4 py-2.5">
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-primary shadow-[0_0_0_6px_rgba(136,38,38,0.12)]" />
-            <span className="text-xs text-premium/70">Fechas disponibles</span>
+            <span className="text-xs text-premium/70">{hasAvailability ? "Fechas disponibles" : "Disponibilidad a confirmar"}</span>
           </div>
           <span className="text-xs text-premium/60">
-            {availableDays.map((d) => String(d).padStart(2, "0")).join(" · ")}
+            {hasAvailability ? Array.from(availableSet).map((d) => String(d).padStart(2, "0")).join(" · ") : "WhatsApp"}
           </span>
           </div>
         </div>

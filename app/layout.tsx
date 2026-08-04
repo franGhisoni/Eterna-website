@@ -7,9 +7,17 @@ import { Suspense } from "react"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "Eterna - Centro de Estética y Depilación de Instituto Ghisoni",
-  description: "Centro de estética y depilación del Instituto Ghisoni de ginecología y fertilidad en Pereira",
-  generator: "v0.app",
+  title: "Eterna | Depilación láser y estética médica en Lomas de Zamora",
+  description:
+    "Depilación láser, medicina estética y HIFU en Instituto Ghisoni, Lomas de Zamora. Consultá disponibilidad y reservá tu turno por WhatsApp.",
+  keywords: ["depilación láser", "estética médica", "HIFU", "Lomas de Zamora", "Instituto Ghisoni"],
+  robots: { index: true, follow: true },
+  openGraph: {
+    title: "Eterna | Estética médica en Lomas de Zamora",
+    description: "Atención estética en Instituto Ghisoni. Consultá disponibilidad por WhatsApp.",
+    locale: "es_AR",
+    type: "website",
+  },
   icons: {
     icon: "/eterna-logo.png",
     shortcut: "/eterna-logo.png",
@@ -23,7 +31,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="es">
+    <html lang="es-AR">
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable} antialiased`}>
         <Suspense fallback={null}>{children}</Suspense>
         <Analytics />

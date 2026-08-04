@@ -169,7 +169,7 @@
 
 /* Smooth transitions for premium feel */
 .transition-premium {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Premium shadow effects */
@@ -182,27 +182,30 @@
 }
 
 .reveal {
+  opacity: 1;
+  transform: none;
+}
+
+.js-reveal-ready .reveal {
   opacity: 0;
   transform: translate3d(0, 14px, 0);
-  transition:
-    opacity 800ms cubic-bezier(0.2, 0.7, 0.2, 1),
-    transform 800ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition: opacity 800ms cubic-bezier(0.2, 0.7, 0.2, 1), transform 800ms cubic-bezier(0.2, 0.7, 0.2, 1);
   will-change: opacity, transform;
 }
 
-.reveal-left {
+.js-reveal-ready .reveal-left {
   transform: translate3d(-16px, 0, 0);
 }
 
-.reveal-right {
+.js-reveal-ready .reveal-right {
   transform: translate3d(16px, 0, 0);
 }
 
-.reveal-scale {
+.js-reveal-ready .reveal-scale {
   transform: scale(0.98);
 }
 
-.reveal.is-visible {
+.js-reveal-ready .reveal.is-visible {
   opacity: 1;
   transform: none;
 }

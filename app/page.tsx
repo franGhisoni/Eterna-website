@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Menu, X, Phone, MapPin, Clock, Star, Sparkles, Heart, ShieldCheck, Building2, Stethoscope } from "lucide-react"
+import { Menu, X, Phone, MapPin, Clock, Star, Sparkles, Heart, ShieldCheck, Building2, Stethoscope, Check } from "lucide-react"
 import { AvailabilityCalendar } from "@/components/availability-calendar"
 
 export default function HomePage() {
@@ -14,6 +14,7 @@ export default function HomePage() {
   const availableDaysThisMonth = [13, 27]
   const whatsappPhone = "541140420769"
   const aboutImageRef = useRef<HTMLDivElement | null>(null)
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null)
   const [aboutImageTop, setAboutImageTop] = useState(0)
   const [viewportH, setViewportH] = useState(0)
 
@@ -21,11 +22,19 @@ export default function HomePage() {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)")
     if (media.matches) return
 
+    let frameId: number | null = null
     const handleScroll = () => {
-      setScrollY(window.scrollY || 0)
+      if (frameId !== null) return
+      frameId = window.requestAnimationFrame(() => {
+        setScrollY(window.scrollY || 0)
+        frameId = null
+      })
     }
     window.addEventListener("scroll", handleScroll, { passive: true })
-    return () => window.removeEventListener("scroll", handleScroll)
+    return () => {
+      window.removeEventListener("scroll", handleScroll)
+      if (frameId !== null) window.cancelAnimationFrame(frameId)
+    }
   }, [])
 
   useEffect(() => {
@@ -52,8 +61,20 @@ export default function HomePage() {
   }, [isMenuOpen])
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && isMenuOpen) {
+        setIsMenuOpen(false)
+        menuButtonRef.current?.focus()
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [isMenuOpen])
+
+  useEffect(() => {
+    document.documentElement.classList.add("js-reveal-ready")
     const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-reveal]"))
-    if (!elements.length) return
+    if (!elements.length) return () => document.documentElement.classList.remove("js-reveal-ready")
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -67,14 +88,17 @@ export default function HomePage() {
     )
 
     for (const el of elements) observer.observe(el)
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      document.documentElement.classList.remove("js-reveal-ready")
+    }
   }, [])
 
-  const handleWhatsAppClick = () => {
+  const handleWhatsAppClick = (topic = "turnos y disponibilidad") => {
     const message = encodeURIComponent(
-      "Hola! Quisiera información sobre turnos y disponibilidad en Eterna. ¿Me pasás opciones y horarios? Gracias!"
+      `Hola! Quisiera información sobre ${topic} en Eterna. ¿Me pasás opciones y horarios? Gracias!`
     )
-    window.open(`https://wa.me/${whatsappPhone}?text=${message}`, "_blank")
+    window.open(`https://wa.me/${whatsappPhone}?text=${message}`, "_blank", "noopener,noreferrer")
   }
 
   const address = "José Pereyra Lucena 575, Lomas de Zamora, Buenos Aires"
@@ -88,8 +112,11 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-premium-light">
+      <a href="#contenido-principal" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-foreground">
+        Saltar al contenido principal
+      </a>
       {/* Navigation */}
-      <nav className="fixed top-[calc(env(safe-area-inset-top)+0.75rem)] left-0 right-0 z-50">
+      <nav aria-label="Navegación principal" className="fixed top-[calc(env(safe-area-inset-top)+0.75rem)] left-0 right-0 z-50">
         <div className="max-w-6xl mx-auto px-3 sm:px-5 lg:px-6">
           <div
             className={[
@@ -130,6 +157,7 @@ export default function HomePage() {
 
               <div className="ml-auto flex items-center justify-end gap-2 shrink-0">
                 <button
+                  ref={menuButtonRef}
                   onClick={() => setIsMenuOpen((v) => !v)}
                   className="lg:hidden inline-flex h-10 w-10 items-center justify-center rounded-xl liquid-glass liquid-glass-soft shadow-[0_6px_18px_rgba(0,0,0,0.08)] transition-premium hover:bg-white/18"
                   aria-label={isMenuOpen ? "Cerrar menú" : "Abrir menú"}
@@ -175,6 +203,7 @@ export default function HomePage() {
       </nav>
 
       {/* Hero Section - Luxury Style with Background Text Overlay */}
+      <main id="contenido-principal">
       <section id="inicio" className="relative min-h-screen overflow-hidden pt-20 sm:pt-24 scroll-mt-28">
         {/* Background Image */}
         <div className="absolute inset-0 z-0">
@@ -192,10 +221,10 @@ export default function HomePage() {
         {/* Background Text Overlay - "Eterna" */}
         <div className="absolute inset-0 z-[5] pointer-events-none">
           <div className="absolute bottom-0 left-0 right-0 text-center transform translate-y-1/3">
-            <h1 className="font-berlys ot-ligs text-[35vw] font-light tracking-wider leading-none select-none 
+            <p aria-hidden="true" className="font-berlys ot-ligs text-[35vw] font-light tracking-wider leading-none select-none
 bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-transparent whitespace-nowrap">
   eterna
-</h1>
+</p>
           </div>
         </div>
 
@@ -216,11 +245,11 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
                       <p className="text-xs tracking-[0.28em] uppercase text-premium/60">
                         Centro de Estética Integral
                       </p>
-                      <h2 className="mt-2 font-berlys ot-ligs text-3xl sm:text-4xl leading-none tracking-wide text-premium">
-                        eterna
-                      </h2>
-                      <p className="mt-3 text-sm sm:text-base text-premium/75 leading-relaxed">
-                        Depilación láser y cuidado de la piel con un enfoque de calidad, simple y honesto en resultados.
+                      <h1 className="mt-2 font-serif text-3xl sm:text-4xl leading-[1.1] font-bold text-premium">
+                        Depilación láser y estética médica en Lomas de Zamora
+                      </h1>
+                      <p className="mt-3 text-sm sm:text-base text-premium/80 leading-relaxed">
+                        Atención personalizada en Instituto Ghisoni, con tratamientos pensados según tu evaluación.
                       </p>
                     </div>
 
@@ -242,12 +271,13 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
 
                   <div className="mt-5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                     <Button
-                      onClick={handleWhatsAppClick}
+                      onClick={() => handleWhatsAppClick()}
                       className="h-11 rounded-xl bg-primary text-primary-foreground px-5 text-sm shadow-[0_10px_26px_rgba(136,38,38,0.22)] hover:bg-primary/90 transition-premium"
                     >
                       <Phone className="mr-2 h-4 w-4" />
-                      Reservar Turno
+                      Reservar por WhatsApp
                     </Button>
+                    <p className="text-xs text-premium/65 sm:self-center">Te respondemos para confirmar tu horario.</p>
                   </div>
                 </div>
               </div>
@@ -310,6 +340,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
           </div>
         </div>
       </section>
+
 
       <section id="instituto-ghisoni" className="py-16 sm:py-20 bg-premium-light scroll-mt-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -442,7 +473,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div data-reveal className="reveal text-center mb-14 sm:mb-16">
             <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold text-premium mb-4">
-              Nuestros Servicioss
+              Nuestros Servicios
             </h2>
             <p className="text-base sm:text-xl text-muted-foreground max-w-2xl mx-auto">
               Tecnología avanzada y atención personalizada para realzar tu belleza natural
@@ -459,16 +490,15 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
                   </div>
                   <h3 className="font-serif text-2xl font-semibold text-premium">Depilación Definitiva</h3>
                   <p className="text-muted-foreground leading-relaxed">
-                    Láser diodo de alta potencia para eliminación permanente del vello. Seguro para todo tipo de piel, resultados desde la
-                    primera sesión.
+                    Láser diodo de alta potencia, con un plan adaptado a tu tipo de piel, zona y objetivos.
                   </p>
-                  <ul className="text-sm text-muted-foreground space-y-1">
-                    <li>✓ Rostro y cuerpo completo</li>
-                    <li>✓ Sin dolor, sin cicatrices</li>
-                    <li>✓ Resultados garantizados</li>
+                  <ul className="text-sm text-muted-foreground space-y-2 text-left">
+                    <li className="flex gap-2"><Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Rostro y cuerpo completo</li>
+                    <li className="flex gap-2"><Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Evaluación y seguimiento personalizado</li>
+                    <li className="flex gap-2"><Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Reducción progresiva según cada caso</li>
                   </ul>
                   <Button
-                    onClick={handleWhatsAppClick}
+                    onClick={() => handleWhatsAppClick("depilación láser")}
                     className="w-full h-11 bg-primary text-primary-foreground hover:bg-primary/90 transition-premium"
                   >
                     Consultar Precios
@@ -486,15 +516,15 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
                   </div>
                   <h3 className="font-serif text-2xl font-semibold text-premium">Medicina Estética</h3>
                   <p className="text-muted-foreground leading-relaxed">
-                    Tratamientos con toxina botulínica para rejuvenecimiento facial. Resultados naturales y armónicos, realzando tu belleza.
+                    Tratamientos estéticos orientados a resultados naturales y armónicos, definidos luego de una evaluación.
                   </p>
-                  <ul className="text-sm text-muted-foreground space-y-1">
-                    <li>✓ Arrugas de expresión</li>
-                    <li>✓ Lifting sin cirugía</li>
-                    <li>✓ Resultados duraderos</li>
+                  <ul className="text-sm text-muted-foreground space-y-2 text-left">
+                    <li className="flex gap-2"><Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-accent" />Consulta personalizada</li>
+                    <li className="flex gap-2"><Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-accent" />Enfoque sutil y equilibrado</li>
+                    <li className="flex gap-2"><Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-accent" />Información clara antes de decidir</li>
                   </ul>
                   <Button
-                    onClick={handleWhatsAppClick}
+                    onClick={() => handleWhatsAppClick("medicina estética")}
                     className="w-full h-11 bg-accent text-accent-foreground hover:bg-accent/90 transition-premium"
                   >
                     Más Información
@@ -503,20 +533,21 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
               </div>
             </div>
 
-            {/* HIFU - Próximamente */}
+            {/* HIFU */}
             <div data-reveal className="reveal" style={{ transitionDelay: "220ms" }}>
-              <div className="bg-premium-card rounded-2xl p-8 shadow-premium border border-premium hover:shadow-premium-lg transition-premium opacity-75">
+              <div className="bg-premium-card rounded-2xl p-8 shadow-premium border border-premium hover:shadow-premium-lg transition-premium hover:-translate-y-1">
                 <div className="text-center space-y-4">
-                  <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto">
-                    <Heart className="h-8 w-8 text-muted-foreground" />
+                  <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
+                    <Heart className="h-8 w-8 text-primary" />
                   </div>
                   <h3 className="font-serif text-2xl font-semibold text-premium">HIFU</h3>
                   <p className="text-muted-foreground leading-relaxed">
-                    Próximamente... Ultrasonido focalizado de alta intensidad para lifting no invasivo.
+                    Nuestro tratamiento recientemente incorporado de ultrasonido focalizado para un enfoque de lifting no invasivo.
                   </p>
-                  <div className="bg-muted text-muted-foreground px-4 py-2 rounded-full text-sm">
-                    Muy Pronto
-                  </div>
+                  <p className="text-sm text-premium/75">Consultá si HIFU es adecuado para vos.</p>
+                  <Button onClick={() => handleWhatsAppClick("HIFU")} className="w-full h-11 bg-primary text-primary-foreground hover:bg-primary/90 transition-premium">
+                    Consultar por HIFU
+                  </Button>
                 </div>
               </div>
             </div>
@@ -966,6 +997,8 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
         </div>
       </section>
 
+      </main>
+
       {/* Footer */}
       <footer className="bg-white border-t border-premium py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -981,7 +1014,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
               José Pereyra Lucena 575, Lomas de Zamora • 11 4042-0769
             </p>
             <p className="text-xs text-muted-foreground">
-              © 2025 <span className="font-berlys ot-ligs">eterna</span>. Todos los derechos reservados.
+              © {new Date().getFullYear()} <span className="font-berlys ot-ligs">eterna</span>. Todos los derechos reservados.
             </p>
           </div>
         </div>
