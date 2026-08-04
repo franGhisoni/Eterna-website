@@ -442,7 +442,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div data-reveal className="reveal text-center mb-14 sm:mb-16">
             <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold text-premium mb-4">
-              Nuestros Servicios
+              Nuestros Servicioss
             </h2>
             <p className="text-base sm:text-xl text-muted-foreground max-w-2xl mx-auto">
               Tecnología avanzada y atención personalizada para realzar tu belleza natural
