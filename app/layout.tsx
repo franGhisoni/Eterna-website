@@ -19,9 +19,9 @@ export const metadata: Metadata = {
     type: "website",
   },
   icons: {
-    icon: "/eterna-logo.png",
-    shortcut: "/eterna-logo.png",
-    apple: "/eterna-logo.png",
+    icon: "/eterna-logo.webp",
+    shortcut: "/eterna-logo.webp",
+    apple: "/eterna-logo.webp",
   },
 }
 

@@ -126,7 +126,7 @@ export default function HomePage() {
           >
             <div className="relative flex items-center px-3 sm:px-4 py-2">
               <a href="#inicio" className="flex items-center gap-2 shrink-0">
-                <img src="/eterna-logo.png" alt="Eterna" className="h-7 w-auto" />
+                <img src="/eterna-logo.webp" alt="Eterna" className="h-7 w-auto" />
                 <span className="font-berlys ot-ligs text-xl leading-none tracking-wide text-premium">
                   eterna
                 </span>
@@ -208,7 +208,7 @@ export default function HomePage() {
         {/* Background Image */}
         <div className="absolute inset-0 z-0">
           <img
-            src="/sporty-curly-haired-woman-good-shape-has-thin-body-covers-eyes-with-arm-dressed-bodysuit-has-smooth-healthy-skin-slender-legs-demonstrates-perfect-figure-isolated-beige-background.jpg"
+            src="/sporty-curly-haired-woman-good-shape-has-thin-body-covers-eyes-with-arm-dressed-bodysuit-has-smooth-healthy-skin-slender-legs-demonstrates-perfect-figure-isolated-beige-background.webp"
             alt="Mujer con piel saludable y cuerpo tonificado - Estética premium"
             className="w-full h-full object-cover"
             fetchPriority="high"
@@ -347,7 +347,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
             <div data-reveal className="reveal reveal-left lg:col-span-5 space-y-7">
               <div className="flex flex-wrap items-center gap-3 rounded-2xl sm:rounded-full liquid-glass liquid-glass-strong px-4 py-2 shadow-premium max-w-full">
-                <img src="/ghisoni-logo.png" alt="Instituto Ghisoni" className="h-6 w-auto" />
+                <img src="/ghisoni-logo.webp" alt="Instituto Ghisoni" className="h-6 w-auto" />
                 <span className="text-[11px] sm:text-xs tracking-[0.22em] sm:tracking-[0.28em] uppercase text-premium/70 leading-snug">
                   Instituto Ghisoni <span className="hidden sm:inline">· Lomas de Zamora</span>
                 </span>
@@ -568,7 +568,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
                         className="relative h-[360px] sm:h-[440px] lg:h-[520px] w-[48px] sm:w-[60px] lg:w-[66px] rounded-full overflow-hidden bg-[#2b2b2b]/10"
                       >
                         <img
-                          src="/profile-naked-female-body.jpg"
+                          src="/profile-naked-female-body.webp"
                           alt="Resultados estéticos - Eterna"
                           className="absolute inset-0 h-full w-full object-cover grayscale contrast-150 brightness-75"
                           loading="lazy"
@@ -616,7 +616,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
                   <div data-reveal className="reveal" style={{ transitionDelay: "60ms" }}>
                     <div className="rounded-[1.5rem] liquid-glass liquid-glass-strong shadow-premium overflow-hidden transition-premium hover:-translate-y-0.5 hover:shadow-premium-lg">
                       <img
-                        src="/portrait-young-woman-massaging-her-neck-using-gua-sha.jpg"
+                        src="/portrait-young-woman-massaging-her-neck-using-gua-sha.webp"
                         alt="Cuidado de la piel"
                         className="h-40 w-full object-cover"
                         loading="lazy"
@@ -633,7 +633,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
                   <div data-reveal className="reveal" style={{ transitionDelay: "140ms" }}>
                     <div className="rounded-[1.5rem] liquid-glass liquid-glass-strong shadow-premium overflow-hidden transition-premium hover:-translate-y-0.5 hover:shadow-premium-lg">
                       <img
-                        src="/skin-care-woman-with-beauty-face-touching-healthy-facial-skin-portrait-beautiful-smiling-girl-model-with-natural-makeup-touching-glowing-hydrated-skin-white-wall.jpg"
+                        src="/skin-care-woman-with-beauty-face-touching-healthy-facial-skin-portrait-beautiful-smiling-girl-model-with-natural-makeup-touching-glowing-hydrated-skin-white-wall.webp"
                         alt="Piel saludable"
                         className="h-40 w-full object-cover"
                         loading="lazy"
@@ -696,7 +696,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
                   className="reveal relative overflow-hidden rounded-[2rem] shadow-premium-lg border border-premium"
                 >
                   <img
-                    src="/different-women-standing-together.jpg"
+                    src="/different-women-standing-together.webp"
                     alt="Cuidado de la piel y estética premium"
                     className="h-[420px] sm:h-[520px] lg:h-[640px] w-full object-cover grayscale contrast-125 brightness-95"
                     loading="lazy"
@@ -1004,7 +1004,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div data-reveal className="reveal text-center space-y-4">
             <div className="flex items-center justify-center space-x-3">
-              <img src="/eterna-logo.png" alt="Eterna" className="h-8 w-auto" />
+              <img src="/eterna-logo.webp" alt="Eterna" className="h-8 w-auto" />
               <span className="font-berlys ot-ligs text-xl font-medium text-premium tracking-wide">Eterna</span>
             </div>
             <p className="text-muted-foreground">
