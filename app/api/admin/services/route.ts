@@ -5,22 +5,50 @@ import { badRequest, isAdmin, unauthorized } from "@/lib/server/http"
 
 export const dynamic = "force-dynamic"
 
-type ServiceInput = { name: string; description: string; duration_min: number; price: number; deposit: number; active: boolean; sort: number }
+type ServiceInput = {
+  name: string
+  description: string
+  duration_min: number
+  price: number
+  deposit: number
+  active: boolean
+  sort: number
+  category: string
+  kind: string
+  gender: string
+  detail: string
+}
+
+const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "")
 
 function parse(body: Record<string, unknown>): ServiceInput | null {
   const int = (v: unknown, min: number, max: number) => {
     const n = Math.round(Number(v))
     return Number.isFinite(n) && n >= min && n <= max ? n : null
   }
-  const name = typeof body.name === "string" ? body.name.trim().slice(0, 120) : ""
-  const description = typeof body.description === "string" ? body.description.trim().slice(0, 1000) : ""
+  const name = text(body.name, 120)
   const duration_min = int(body.duration_min, 5, 600)
   const price = int(body.price, 0, 100_000_000)
   const deposit = int(body.deposit, 0, 100_000_000)
-  const sort = int(body.sort ?? 0, -1000, 1000)
+  const sort = int(body.sort ?? 0, -10000, 10000)
   if (!name || duration_min === null || price === null || deposit === null || sort === null) return null
-  return { name, description, duration_min, price, deposit, active: body.active !== false, sort }
+  return {
+    name,
+    description: text(body.description, 1000),
+    duration_min,
+    price,
+    deposit,
+    active: body.active !== false,
+    sort,
+    category: text(body.category, 80),
+    kind: text(body.kind, 40),
+    gender: text(body.gender, 40),
+    detail: text(body.detail, 500),
+  }
 }
+
+const COLS = "name, description, duration_min, price, deposit, active, sort, category, kind, gender, detail"
+const values = (s: ServiceInput) => [s.name, s.description, s.duration_min, s.price, s.deposit, s.active, s.sort, s.category, s.kind, s.gender, s.detail]
 
 export async function GET() {
   if (!(await isAdmin())) return unauthorized()
@@ -31,10 +59,7 @@ export async function POST(req: NextRequest) {
   if (!(await isAdmin())) return unauthorized()
   const s = parse((await req.json().catch(() => ({}))) as Record<string, unknown>)
   if (!s) return badRequest()
-  const { rows } = await (await db()).query(
-    "insert into services (name, description, duration_min, price, deposit, active, sort) values ($1,$2,$3,$4,$5,$6,$7) returning *",
-    [s.name, s.description, s.duration_min, s.price, s.deposit, s.active, s.sort],
-  )
+  const { rows } = await (await db()).query(`insert into services (${COLS}) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`, values(s))
   return NextResponse.json({ service: rows[0] })
 }
 
@@ -45,8 +70,8 @@ export async function PUT(req: NextRequest) {
   const s = parse(body)
   if (!Number.isInteger(id) || !s) return badRequest()
   const { rows } = await (await db()).query(
-    "update services set name=$2, description=$3, duration_min=$4, price=$5, deposit=$6, active=$7, sort=$8 where id=$1 returning *",
-    [id, s.name, s.description, s.duration_min, s.price, s.deposit, s.active, s.sort],
+    `update services set name=$2, description=$3, duration_min=$4, price=$5, deposit=$6, active=$7, sort=$8, category=$9, kind=$10, gender=$11, detail=$12 where id=$1 returning *`,
+    [id, ...values(s)],
   )
   return rows[0] ? NextResponse.json({ service: rows[0] }) : badRequest("no_encontrado")
 }

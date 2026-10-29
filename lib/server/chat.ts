@@ -8,8 +8,17 @@ const TOOLS = [
   {
     type: "function",
     name: "mostrar_servicios",
-    description: "Muestra en pantalla la lista de servicios con duración, precio y seña. Usala cuando pregunten qué servicios hay o cuánto cuestan.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
+    description: "Muestra en pantalla servicios con precio por sesión, duración y seña. Filtrá siempre lo más posible: por tratamiento, género y/o ids puntuales (por ejemplo, las zonas o combos que está considerando la persona). Sin filtros muestra todo, que es muy largo.",
+    parameters: {
+      type: "object",
+      properties: {
+        tratamiento: { type: "string", description: "Nombre del tratamiento tal como figura en la lista (por ejemplo 'Depilación Definitiva' o 'HIFU'), o cadena vacía" },
+        genero: { type: "string", enum: ["", "Femenina", "Masculino", "Unisex"], description: "Para depilación: Femenina o Masculino. Cadena vacía si no aplica" },
+        ids: { type: "array", items: { type: "integer" }, description: "ids puntuales a mostrar; lista vacía para no filtrar por id" },
+      },
+      required: ["tratamiento", "genero", "ids"],
+      additionalProperties: false,
+    },
   },
   {
     type: "function",
@@ -76,9 +85,16 @@ function nowLabel(): string {
 }
 
 function serviceLine(s: Service): string {
-  const price = s.price > 0 ? formatARS(s.price) : "precio a confirmar en la evaluación"
-  const deposit = s.deposit > 0 ? `seña ${formatARS(s.deposit)} por Mercado Pago` : "sin seña"
-  return `- id ${s.id} · ${s.name} · ${s.duration_min} min · ${price} · ${deposit}. ${s.description}`
+  const price = s.price > 0 ? `${formatARS(s.price)} por sesión` : "precio a confirmar en la evaluación"
+  const deposit = s.deposit > 0 ? `seña ${formatARS(s.deposit)}` : "sin seña"
+  const tags = [s.gender, s.kind, s.detail && s.detail !== s.name ? `incluye: ${s.detail}` : ""].filter(Boolean).join("; ")
+  return `- id ${s.id} · ${s.name}${tags ? ` (${tags})` : ""} · ${s.duration_min} min · ${price} · ${deposit}${s.description ? `. ${s.description}` : ""}`
+}
+
+function servicesBlock(services: Service[]): string {
+  const groups = new Map<string, Service[]>()
+  for (const s of services) groups.set(s.category || "Otros", [...(groups.get(s.category || "Otros") ?? []), s])
+  return Array.from(groups, ([cat, list]) => `${cat}:\n${list.map(serviceLine).join("\n")}`).join("\n\n")
 }
 
 function instructions(settings: Settings, services: Service[]): string {
@@ -92,11 +108,16 @@ Datos del centro:
 - Horario de atención: ${b.hours}
 - WhatsApp: +${b.whatsapp}
 
-Servicios que se pueden reservar online:
-${services.map(serviceLine).join("\n") || "- (no hay servicios cargados: derivá a WhatsApp)"}
+Servicios y precios (los precios son por sesión; cada servicio se reserva por separado con su id):
+${servicesBlock(services) || "- (no hay servicios cargados: derivá a WhatsApp)"}
+
+Precios y recomendaciones:
+- En depilación los precios dependen de la zona y del género: si no lo sabés, preguntá si es para mujer u hombre antes de dar precios.
+- Si la persona quiere varias zonas sueltas, sumalas y comparalas con los combos que las incluyen; si un combo conviene, sugerilo con la diferencia de precio.
+- Para mostrar precios usá mostrar_servicios filtrando por tratamiento, género o los ids que estén en juego; no muestres toda la lista salvo que lo pidan.
 
 Cómo reservar:
-- Necesitás el servicio y el día o rango de días que prefiere. Pedí solo lo que falte, de a una cosa por vez.
+- Necesitás el servicio (zona o combo puntual) y el día o rango de días que prefiere. Pedí solo lo que falte, de a una cosa por vez.
 - Buscá turnos con buscar_horarios y no los enumeres en el texto: ya aparecen en pantalla. Decí solo una frase para que elija.
 - Cuando elija uno, pedí nombre y teléfono si faltan (el email es opcional), repetí el resumen (servicio, día y hora, precio y seña) y pedí confirmación explícita antes de llamar a reservar_turno.
 - Si el servicio tiene seña, después de reservar contá que el turno queda guardado ${settings.booking.holdMinutes} minutos hasta que pague la seña con el botón de Mercado Pago. Nunca digas que algo está pagado: lo confirma el sistema.
@@ -125,12 +146,24 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
   const b = settings.business
 
   if (name === "mostrar_servicios") {
-    const services = await listServices()
+    const norm = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim()
+    const category = typeof args.tratamiento === "string" ? norm(args.tratamiento) : ""
+    const gender = typeof args.genero === "string" ? args.genero : ""
+    const ids = Array.isArray(args.ids) ? new Set(args.ids.map(Number)) : new Set<number>()
+    const services = (await listServices()).filter(
+      (s) =>
+        (!ids.size || ids.has(s.id)) &&
+        (!category || norm(s.category).includes(category) || norm(s.name).includes(category)) &&
+        (!gender || !s.gender || s.gender === gender || s.gender === "Unisex"),
+    )
+    if (!services.length) return { output: { error: "sin_resultados", detalle: "Ningún servicio coincide con esos filtros" } }
+    const title = [category ? services[0].category : "Servicios", gender && gender !== "Unisex" ? gender.toLowerCase() : ""].filter(Boolean).join(" · ")
     return {
-      output: { mostrado: true, servicios: services.map((s) => ({ id: s.id, nombre: s.name, minutos: s.duration_min, precio: s.price, sena: s.deposit })) },
+      output: { mostrado: true, cantidad: services.length },
       card: {
         type: "services",
-        items: services.map((s) => ({ id: s.id, name: s.name, description: s.description, duration: s.duration_min, price: s.price, deposit: s.deposit })),
+        title,
+        items: services.map((s) => ({ id: s.id, name: s.name, description: s.description, detail: s.detail, gender: s.gender, category: s.category, duration: s.duration_min, price: s.price, deposit: s.deposit })),
       },
     }
   }

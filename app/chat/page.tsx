@@ -11,7 +11,7 @@ type Message = { id: number; role: "user" | "assistant"; text?: string; card?: C
 
 const WELCOME = "Hola, soy la asistente de Eterna. Puedo contarte sobre nuestros tratamientos, mostrarte turnos libres y ayudarte a reservar. ¿En qué te ayudo?"
 const SUGGESTIONS = ["¿Qué servicios tienen?", "Quiero reservar depilación láser", "¿Cómo me preparo para el láser?", "¿Dónde quedan?"]
-const STORAGE_KEY = "eterna-chat-v1"
+const STORAGE_KEY = "eterna-chat-v2"
 
 const ERRORS: Record<string, string> = {
   sin_modelo: "El chat no está disponible en este momento. Escribinos por WhatsApp y te respondemos.",
@@ -30,27 +30,40 @@ function readStored(): { messages: Message[]; responseId?: string } | null {
 function Card({ card, send }: { card: ChatCard; send: (text: string) => void }) {
   const base = "w-full rounded-2xl border border-premium bg-white p-5 shadow-premium"
   if (card.type === "services") {
+    const groups = new Map<string, typeof card.items>()
+    for (const s of card.items) groups.set(s.category || "", [...(groups.get(s.category || "") ?? []), s])
+    const multi = groups.size > 1
     return (
       <div className={base}>
-        <p className="font-serif text-lg font-semibold text-premium">Servicios</p>
-        <ul className="mt-3 divide-y divide-border">
-          {card.items.map((s) => (
-            <li key={s.id} className="py-3">
-              <div className="flex items-baseline justify-between gap-3">
-                <p className="font-medium text-premium">{s.name}</p>
-                <p className="shrink-0 text-sm font-medium text-primary">{s.price > 0 ? formatARS(s.price) : "A evaluar"}</p>
-              </div>
-              <p className="mt-1 text-sm text-premium/65">{s.description}</p>
-              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-premium/55">
-                <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{s.duration} min</span>
-                {s.deposit > 0 && <span>Seña {formatARS(s.deposit)}</span>}
-                <button type="button" onClick={() => send(`Quiero reservar ${s.name}`)} className="ml-auto rounded-full border border-primary/25 px-3 py-1 text-xs font-medium text-primary transition-premium hover:bg-primary/5">
-                  Reservar
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <p className="font-serif text-lg font-semibold text-premium">{card.title || "Servicios"}</p>
+        <p className="text-xs text-premium/50">Precios por sesión</p>
+        {Array.from(groups, ([cat, items]) => (
+          <div key={cat}>
+            {multi && cat && <p className="mt-4 text-xs font-medium uppercase tracking-[0.18em] text-premium/50">{cat}</p>}
+            <ul className="mt-1 divide-y divide-border">
+              {items.map((s) => {
+                const info = s.detail && s.detail.toLowerCase() !== s.name.toLowerCase() ? s.detail : s.description
+                const label = `${s.name}${s.gender && s.gender !== "Unisex" ? ` (${s.gender.toLowerCase()})` : ""}`
+                return (
+                  <li key={s.id} className="py-2.5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <p className="font-medium text-premium">{label}</p>
+                      <p className="shrink-0 text-sm font-medium text-primary">{s.price > 0 ? formatARS(s.price) : "A evaluar"}</p>
+                    </div>
+                    {info && <p className="mt-0.5 text-sm text-premium/60">{info}</p>}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-premium/50">
+                      <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{s.duration} min</span>
+                      {s.deposit > 0 && <span>Seña {formatARS(s.deposit)}</span>}
+                      <button type="button" onClick={() => send(`Quiero reservar ${label}`)} className="ml-auto rounded-full border border-primary/25 px-3 py-1 text-xs font-medium text-primary transition-premium hover:bg-primary/5">
+                        Reservar
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        ))}
       </div>
     )
   }

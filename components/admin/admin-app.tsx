@@ -2,12 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Bot, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, ExternalLink, LogOut, Plus, Save, Settings2, Sparkles, Trash2 } from "lucide-react"
+import { Bot, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, ExternalLink, LogOut, Plus, Save, Settings2, Sparkles, Trash2, Users } from "lucide-react"
 import type { Settings, ReasoningEffort } from "@/lib/server/settings"
 import { addDays, formatARS, formatDay, TIME_ZONE, todayAR, weekdayOf } from "@/lib/time"
 
 type Status = { openai: boolean; mercadoPago: "off" | "test" | "produccion"; webhookSecret: boolean }
-type Service = { id: number; name: string; description: string; duration_min: number; price: number; deposit: number; active: boolean; sort: number }
+type Service = {
+  id: number
+  name: string
+  description: string
+  duration_min: number
+  price: number
+  deposit: number
+  active: boolean
+  sort: number
+  category: string
+  kind: string
+  gender: string
+  detail: string
+}
 type Booking = {
   id: string
   service_name: string
@@ -23,7 +36,8 @@ type Booking = {
 type RangeRow = { start: string; end: string }
 
 const field = "h-10 w-full rounded-lg border border-premium bg-white px-3 text-sm text-premium outline-none focus:border-primary/40 focus:ring-[3px] focus:ring-primary/10"
-const btn = "inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition-premium disabled:opacity-50"
+const fieldInline = "h-10 rounded-lg border border-premium bg-white px-3 text-sm text-premium outline-none focus:border-primary/40 focus:ring-[3px] focus:ring-primary/10"
+const btn ="inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition-premium disabled:opacity-50"
 const btnPrimary = `${btn} bg-primary text-primary-foreground hover:bg-primary/90`
 const btnGhost = `${btn} border border-premium bg-white text-premium hover:bg-secondary`
 const btnIcon = "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-premium bg-white text-premium transition-premium hover:bg-secondary"
@@ -54,6 +68,7 @@ function useFlash() {
 const TABS = [
   { id: "turnos", label: "Turnos", icon: ClipboardList },
   { id: "agenda", label: "Agenda", icon: CalendarDays },
+  { id: "pacientes", label: "Pacientes", icon: Users },
   { id: "servicios", label: "Servicios", icon: Sparkles },
   { id: "asistente", label: "Asistente IA", icon: Bot },
   { id: "config", label: "Configuración", icon: Settings2 },
@@ -127,6 +142,7 @@ export function AdminApp() {
       <main className="mx-auto max-w-6xl px-4 py-6">
         {tab === "turnos" && <BookingsTab flash={setFlash} />}
         {tab === "agenda" && <AgendaTab flash={setFlash} />}
+        {tab === "pacientes" && <PatientsTab flash={setFlash} />}
         {tab === "servicios" && <ServicesTab flash={setFlash} />}
         {tab === "asistente" && settings && <AiTab settings={settings} status={status} save={saveSettings} />}
         {tab === "config" && settings && <ConfigTab settings={settings} status={status} save={saveSettings} />}
@@ -411,8 +427,48 @@ function AgendaTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
 
 /* ───────────── Servicios ───────────── */
 
+const GENDERS = ["", "Femenina", "Masculino", "Unisex"]
+const KINDS = ["", "Zona suelta", "Combo", "Consulta"]
+
+function ServiceRow({ s, update, save, remove }: { s: Service; update: (p: Partial<Service>) => void; save: () => void; remove: () => void }) {
+  const [open, setOpen] = useState(s.id < 0)
+  const small = "h-9 w-full rounded-md border border-premium bg-white px-2 text-sm text-premium outline-none focus:border-primary/40"
+  return (
+    <li className="py-2.5">
+      <div className="grid grid-cols-2 items-center gap-2 md:grid-cols-[minmax(0,1.6fr)_110px_110px_80px_100px_100px_auto]">
+        <input value={s.name} onChange={(e) => update({ name: e.target.value })} className={`${small} col-span-2 font-medium md:col-span-1`} aria-label="Nombre" placeholder="Nombre" />
+        <select value={s.gender} onChange={(e) => update({ gender: e.target.value })} className={small} aria-label="Género">
+          {GENDERS.map((g) => <option key={g} value={g}>{g || "Género"}</option>)}
+        </select>
+        <select value={s.kind} onChange={(e) => update({ kind: e.target.value })} className={small} aria-label="Tipo">
+          {KINDS.map((k) => <option key={k} value={k}>{k || "Tipo"}</option>)}
+        </select>
+        <label className="flex items-center gap-1 text-xs text-premium/55"><input type="number" min={5} step={5} value={s.duration_min} onChange={(e) => update({ duration_min: Number(e.target.value) })} className={small} aria-label="Duración en minutos" />min</label>
+        <label className="flex items-center gap-1 text-xs text-premium/55">$<input type="number" min={0} value={s.price} onChange={(e) => update({ price: Number(e.target.value) })} className={small} aria-label="Precio" /></label>
+        <label className="flex items-center gap-1 text-xs text-premium/55" title="Seña">S<input type="number" min={0} value={s.deposit} onChange={(e) => update({ deposit: Number(e.target.value) })} className={small} aria-label="Seña" /></label>
+        <div className="col-span-2 flex items-center justify-end gap-1.5 md:col-span-1">
+          <label className="mr-1 flex items-center gap-1.5 text-xs text-premium/60" title="Visible y reservable">
+            <input type="checkbox" checked={s.active} onChange={(e) => update({ active: e.target.checked })} className="accent-[#882626]" /> Activo
+          </label>
+          <button onClick={() => setOpen(!open)} className={`${btnGhost} h-9 px-2.5 text-xs`}>{open ? "Menos" : "Más"}</button>
+          <button onClick={remove} className={`${btnIcon} h-9 w-9 text-destructive`} aria-label="Eliminar servicio"><Trash2 className="h-4 w-4" /></button>
+          <button onClick={save} className={`${btnPrimary} h-9 px-3`} aria-label="Guardar servicio"><Save className="h-4 w-4" /></button>
+        </div>
+      </div>
+      {open && (
+        <div className="mt-2 grid gap-2 md:grid-cols-[200px_1fr_1fr]">
+          <label className="text-xs text-premium/60">Tratamiento<input value={s.category} onChange={(e) => update({ category: e.target.value })} className={`${small} mt-1`} /></label>
+          <label className="text-xs text-premium/60">Zonas incluidas<input value={s.detail} onChange={(e) => update({ detail: e.target.value })} className={`${small} mt-1`} /></label>
+          <label className="text-xs text-premium/60">Descripción para el cliente<input value={s.description} onChange={(e) => update({ description: e.target.value })} className={`${small} mt-1`} /></label>
+        </div>
+      )}
+    </li>
+  )
+}
+
 function ServicesTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
   const [services, setServices] = useState<Service[] | null>(null)
+  const [query, setQuery] = useState("")
 
   const load = useCallback(() => {
     api<{ services: Service[] }>("/api/admin/services").then((d) => setServices(d.services)).catch(() => flash("No se pudieron cargar los servicios", true))
@@ -438,40 +494,203 @@ function ServicesTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
     load()
   }
 
-  const add = () => setServices((v) => [...(v ?? []), { id: -Date.now(), name: "", description: "", duration_min: 30, price: 0, deposit: 0, active: true, sort: (v?.length ?? 0) }])
+  const add = (category: string) =>
+    setServices((v) => [...(v ?? []), { id: -Date.now(), name: "", description: "", duration_min: 30, price: 0, deposit: 0, active: true, sort: (v?.length ?? 0) * 10, category, kind: "", gender: "", detail: "" }])
+
+  const q = query.trim().toLowerCase()
+  const groups = useMemo(() => {
+    const m = new Map<string, Service[]>()
+    for (const s of services ?? []) {
+      if (q && !`${s.name} ${s.category} ${s.detail} ${s.gender}`.toLowerCase().includes(q)) continue
+      const k = s.category || "Otros"
+      m.set(k, [...(m.get(k) ?? []), s])
+    }
+    return Array.from(m)
+  }, [services, q])
 
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-serif text-2xl font-bold text-premium">Servicios</h1>
-          <p className="text-sm text-premium/60">Lo que se puede reservar desde el chat. Con seña mayor a 0 se cobra por Mercado Pago; con 0 el turno se confirma directo.</p>
+          <h1 className="font-serif text-2xl font-bold text-premium">Servicios y precios</h1>
+          <p className="text-sm text-premium/60">Lo que se puede reservar desde el chat. Con seña (S) mayor a 0 se cobra por Mercado Pago; con 0 el turno se confirma directo.</p>
         </div>
-        <button onClick={add} className={btnPrimary}><Plus className="h-4 w-4" /> Nuevo servicio</button>
+        <div className="flex gap-2">
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar…" className={`${fieldInline} w-44`} aria-label="Buscar servicio" />
+          <button onClick={() => add("")} className={btnPrimary}><Plus className="h-4 w-4" /> Nuevo</button>
+        </div>
       </div>
-      {services?.map((s) => (
-        <div key={s.id} className={panel}>
-          <div className="grid gap-3 sm:grid-cols-[1fr_110px_140px_140px]">
-            <label className="text-xs text-premium/60">Nombre<input value={s.name} onChange={(e) => update(s.id, { name: e.target.value })} className={`${field} mt-1`} /></label>
-            <label className="text-xs text-premium/60">Duración (min)<input type="number" min={5} step={5} value={s.duration_min} onChange={(e) => update(s.id, { duration_min: Number(e.target.value) })} className={`${field} mt-1`} /></label>
-            <label className="text-xs text-premium/60">Precio (ARS)<input type="number" min={0} value={s.price} onChange={(e) => update(s.id, { price: Number(e.target.value) })} className={`${field} mt-1`} /></label>
-            <label className="text-xs text-premium/60">Seña (ARS)<input type="number" min={0} value={s.deposit} onChange={(e) => update(s.id, { deposit: Number(e.target.value) })} className={`${field} mt-1`} /></label>
-          </div>
-          <label className="mt-3 block text-xs text-premium/60">Descripción (la ve el cliente y la usa el asistente)
-            <textarea value={s.description} onChange={(e) => update(s.id, { description: e.target.value })} rows={2} className={`${field} mt-1 h-auto py-2`} />
-          </label>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-premium/70">
-              <input type="checkbox" checked={s.active} onChange={(e) => update(s.id, { active: e.target.checked })} className="accent-[#882626]" /> Visible y reservable
-            </label>
-            {s.price === 0 && <span className="text-xs text-amber-700">Sin precio: el asistente dirá "a evaluar".</span>}
-            <div className="ml-auto flex gap-2">
-              <button onClick={() => remove(s)} className={`${btnIcon} text-destructive`} aria-label="Eliminar servicio"><Trash2 className="h-4 w-4" /></button>
-              <button onClick={() => save(s)} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
+      {services === null ? (
+        <p className="text-sm text-premium/60">Cargando…</p>
+      ) : (
+        groups.map(([category, list]) => (
+          <div key={category} className={panel}>
+            <div className="flex items-center justify-between">
+              <p className="font-serif text-lg font-semibold text-premium">{category} <span className="text-sm font-normal text-premium/50">· {list.length}</span></p>
+              <button onClick={() => add(category === "Otros" ? "" : category)} className={`${btnGhost} h-8 text-xs`}><Plus className="h-3.5 w-3.5" /> Agregar</button>
             </div>
+            <ul className="mt-2 divide-y divide-border">
+              {list.map((s) => (
+                <ServiceRow key={s.id} s={s} update={(p) => update(s.id, p)} save={() => save(s)} remove={() => remove(s)} />
+              ))}
+            </ul>
           </div>
+        ))
+      )}
+    </section>
+  )
+}
+
+/* ───────────── Pacientes ───────────── */
+
+type Patient = {
+  id: number
+  name: string
+  phone: string
+  gender: string
+  treatments: string
+  sessions_done: number
+  deposit: number
+  balance: number
+  status: string
+  first_session: string | null
+  last_session: string | null
+  next_appointment: string | null
+  notes: string
+}
+
+const PATIENT_STATUSES = ["Activa", "Pausada", "Dejó", "Finalizó"]
+const STATUS_CLS: Record<string, string> = {
+  Activa: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  Pausada: "bg-amber-50 text-amber-700 border-amber-200",
+  Dejó: "bg-stone-100 text-stone-500 border-stone-200",
+  Finalizó: "bg-sky-50 text-sky-700 border-sky-200",
+}
+
+const toLocalInput = (iso: string | null) => {
+  if (!iso) return ""
+  const d = new Date(new Date(iso).getTime() - 3 * 3600_000)
+  return d.toISOString().slice(0, 16)
+}
+const fromLocalInput = (v: string) => (v ? `${v}:00-03:00` : null)
+const shortDate = (iso: string | null) =>
+  iso ? new Intl.DateTimeFormat("es-AR", { timeZone: TIME_ZONE, day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso)) : "—"
+
+function PatientForm({ p, onClose, onSaved, flash }: { p: Patient; onClose: () => void; onSaved: () => void; flash: (t: string, e?: boolean) => void }) {
+  const [f, setF] = useState(p)
+  const set = (patch: Partial<Patient>) => setF((v) => ({ ...v, ...patch }))
+  const save = async () => {
+    try {
+      await api("/api/admin/patients", { method: f.id > 0 ? "PUT" : "POST", body: JSON.stringify(f) })
+      flash("Paciente guardado")
+      onSaved()
+    } catch {
+      flash("Revisá los datos (el nombre es obligatorio)", true)
+    }
+  }
+  const remove = async () => {
+    if (!confirm(`¿Eliminar a ${f.name}?`)) return
+    await api(`/api/admin/patients?id=${f.id}`, { method: "DELETE" }).catch(() => flash("No se pudo eliminar", true))
+    onSaved()
+  }
+  const lbl = "text-xs text-premium/60"
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onClick={onClose}>
+      <div className="h-full w-full max-w-md overflow-y-auto bg-white p-6 shadow-premium-lg" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Paciente">
+        <div className="flex items-center justify-between">
+          <p className="font-serif text-xl font-bold text-premium">{f.id > 0 ? "Editar paciente" : "Nuevo paciente"}</p>
+          <button onClick={onClose} className={`${btnGhost} h-9`}>Cerrar</button>
         </div>
-      ))}
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <label className={`${lbl} col-span-2`}>Nombre<input value={f.name} onChange={(e) => set({ name: e.target.value })} className={`${field} mt-1`} /></label>
+          <label className={lbl}>Teléfono<input value={f.phone} onChange={(e) => set({ phone: e.target.value })} className={`${field} mt-1`} /></label>
+          <label className={lbl}>Género<select value={f.gender} onChange={(e) => set({ gender: e.target.value })} className={`${field} mt-1`}>{["", "Mujer", "Hombre", "Otro"].map((g) => <option key={g} value={g}>{g || "—"}</option>)}</select></label>
+          <label className={`${lbl} col-span-2`}>Tratamiento / zonas<input value={f.treatments} onChange={(e) => set({ treatments: e.target.value })} className={`${field} mt-1`} /></label>
+          <label className={lbl}>Estado<select value={f.status} onChange={(e) => set({ status: e.target.value })} className={`${field} mt-1`}>{PATIENT_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
+          <label className={lbl}>Sesiones realizadas<input type="number" min={0} value={f.sessions_done} onChange={(e) => set({ sessions_done: Number(e.target.value) })} className={`${field} mt-1`} /></label>
+          <label className={lbl}>Seña (ARS)<input type="number" min={0} value={f.deposit} onChange={(e) => set({ deposit: Number(e.target.value) })} className={`${field} mt-1`} /></label>
+          <label className={lbl}>Resta abonar (ARS)<input type="number" min={0} value={f.balance} onChange={(e) => set({ balance: Number(e.target.value) })} className={`${field} mt-1`} /></label>
+          <label className={lbl}>Primera sesión<input type="date" value={f.first_session ?? ""} onChange={(e) => set({ first_session: e.target.value || null })} className={`${field} mt-1`} /></label>
+          <label className={lbl}>Última sesión<input type="date" value={f.last_session ?? ""} onChange={(e) => set({ last_session: e.target.value || null })} className={`${field} mt-1`} /></label>
+          <label className={`${lbl} col-span-2`}>Próximo turno<input type="datetime-local" value={toLocalInput(f.next_appointment)} onChange={(e) => set({ next_appointment: fromLocalInput(e.target.value) })} className={`${field} mt-1`} /></label>
+          <label className={`${lbl} col-span-2`}>Notas<textarea rows={4} value={f.notes} onChange={(e) => set({ notes: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
+        </div>
+        <div className="mt-5 flex gap-2">
+          <button onClick={save} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
+          {f.phone && <a href={`https://wa.me/${f.phone.replace(/\D/g, "").replace(/^(?!54)/, "549")}`} target="_blank" rel="noreferrer" className={btnGhost}>WhatsApp</a>}
+          {f.id > 0 && <button onClick={remove} className={`${btnIcon} ml-auto text-destructive`} aria-label="Eliminar paciente"><Trash2 className="h-4 w-4" /></button>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PatientsTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
+  const [patients, setPatients] = useState<Patient[] | null>(null)
+  const [query, setQuery] = useState("")
+  const [status, setStatus] = useState("Activa")
+  const [editing, setEditing] = useState<Patient | null>(null)
+
+  const load = useCallback(() => {
+    api<{ patients: Patient[] }>("/api/admin/patients").then((d) => setPatients(d.patients)).catch(() => flash("No se pudieron cargar los pacientes", true))
+  }, [flash])
+  useEffect(load, [load])
+
+  const q = query.trim().toLowerCase()
+  const visible = (patients ?? []).filter((p) => (!status || p.status === status) && (!q || `${p.name} ${p.phone} ${p.treatments}`.toLowerCase().includes(q)))
+  const totals = visible.reduce((a, p) => ({ balance: a.balance + p.balance, sessions: a.sessions + p.sessions_done }), { balance: 0, sessions: 0 })
+  const blank: Patient = { id: -1, name: "", phone: "", gender: "", treatments: "", sessions_done: 0, deposit: 0, balance: 0, status: "Activa", first_session: null, last_session: null, next_appointment: null, notes: "" }
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-serif text-2xl font-bold text-premium">Pacientes</h1>
+          <p className="text-sm text-premium/60">{visible.length} pacientes · {totals.sessions} sesiones realizadas · {formatARS(totals.balance)} por cobrar</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar nombre, teléfono, zona…" className={`${fieldInline} w-56`} aria-label="Buscar paciente" />
+          <select value={status} onChange={(e) => setStatus(e.target.value)} className={`${fieldInline} w-32`} aria-label="Estado">
+            <option value="">Todos</option>
+            {PATIENT_STATUSES.map((s) => <option key={s}>{s}</option>)}
+          </select>
+          <button onClick={() => setEditing(blank)} className={btnPrimary}><Plus className="h-4 w-4" /> Nuevo</button>
+        </div>
+      </div>
+      <div className={`${panel} overflow-x-auto p-0 sm:p-0`}>
+        {patients === null ? (
+          <p className="p-5 text-sm text-premium/60">Cargando…</p>
+        ) : (
+          <table className="w-full min-w-[760px] text-sm">
+            <thead className="border-b border-premium text-left text-xs text-premium/55">
+              <tr>
+                <th className="px-4 py-3 font-medium">Nombre</th>
+                <th className="px-3 py-3 font-medium">Tratamiento</th>
+                <th className="px-3 py-3 text-right font-medium">Sesiones</th>
+                <th className="px-3 py-3 text-right font-medium">Resta</th>
+                <th className="px-3 py-3 font-medium">Próximo turno</th>
+                <th className="px-3 py-3 font-medium">Estado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {visible.map((p) => (
+                <tr key={p.id} onClick={() => setEditing(p)} className="cursor-pointer transition-premium hover:bg-secondary/40">
+                  <td className="px-4 py-2.5">
+                    <p className="font-medium text-premium">{p.name}</p>
+                    <p className="text-xs text-premium/50">{p.phone || "sin teléfono"}</p>
+                  </td>
+                  <td className="max-w-[240px] px-3 py-2.5 text-premium/75">{p.treatments || "—"}</td>
+                  <td className="px-3 py-2.5 text-right text-premium">{p.sessions_done}</td>
+                  <td className={`px-3 py-2.5 text-right ${p.balance > 0 ? "font-medium text-primary" : "text-premium/50"}`}>{p.balance > 0 ? formatARS(p.balance) : "—"}</td>
+                  <td className="px-3 py-2.5 text-premium/75">{shortDate(p.next_appointment)}</td>
+                  <td className="px-3 py-2.5"><span className={`rounded-full border px-2.5 py-0.5 text-xs ${STATUS_CLS[p.status] ?? STATUS_CLS.Dejó}`}>{p.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {editing && <PatientForm p={editing} flash={flash} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load() }} />}
     </section>
   )
 }

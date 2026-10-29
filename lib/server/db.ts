@@ -43,6 +43,26 @@ create table if not exists bookings (
   created_at timestamptz not null default now()
 );
 create index if not exists bookings_starts on bookings(starts_at);
+alter table services add column if not exists category text not null default '';
+alter table services add column if not exists kind text not null default '';
+alter table services add column if not exists gender text not null default '';
+alter table services add column if not exists detail text not null default '';
+create table if not exists patients (
+  id serial primary key,
+  name text not null,
+  phone text not null default '',
+  gender text not null default '',
+  treatments text not null default '',
+  sessions_done int not null default 0,
+  deposit int not null default 0,
+  balance int not null default 0,
+  status text not null default 'Activa',
+  first_session date,
+  last_session date,
+  next_appointment timestamptz,
+  notes text not null default '',
+  created_at timestamptz not null default now()
+);
 `
 
 const SEED_SERVICES: Array<[string, string, number]> = [

@@ -14,6 +14,10 @@ export type Service = {
   deposit: number
   active: boolean
   sort: number
+  category: string
+  kind: string
+  gender: string
+  detail: string
 }
 
 export type Range = { day: string; start_time: string; end_time: string }
@@ -162,7 +166,7 @@ export async function createBooking(input: CreateBookingInput, booking: BookingS
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) returning *`,
       [
         input.service.id,
-        input.service.name,
+        input.service.gender && input.service.gender !== "Unisex" ? `${input.service.name} (${input.service.gender})` : input.service.name,
         input.start,
         end,
         input.name,
