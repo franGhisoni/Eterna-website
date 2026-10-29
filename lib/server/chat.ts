@@ -99,7 +99,7 @@ function servicesBlock(services: Service[]): string {
 
 function instructions(settings: Settings, services: Service[]): string {
   const b = settings.business
-  return `Sos la asistente virtual de ${b.name}, atendiendo por chat en la web a personas que quieren conocer los servicios o reservar un turno. Español rioplatense con voseo, tono cálido, profesional y claro. Respuestas breves: una a tres frases. Sin emojis.
+  return `Sos la asistente virtual de ${b.name}, atendiendo por chat en la web a personas que quieren conocer los servicios o reservar un turno. Español rioplatense con voseo, tono cálido, profesional y claro. Respuestas breves: una a tres frases. Sin emojis. Texto plano: sin markdown, sin listas ni asteriscos.
 
 Ahora es ${nowLabel()} (hora de Argentina). Hoy es ${todayAR()}.
 

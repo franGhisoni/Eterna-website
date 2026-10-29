@@ -27,6 +27,10 @@ function readStored(): { messages: Message[]; responseId?: string } | null {
   }
 }
 
+function RichText({ text }: { text: string }) {
+  return <>{text.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <strong key={i} className="font-semibold">{part}</strong> : part))}</>
+}
+
 function Card({ card, send }: { card: ChatCard; send: (text: string) => void }) {
   const base = "w-full rounded-2xl border border-premium bg-white p-5 shadow-premium"
   if (card.type === "services") {
@@ -244,7 +248,7 @@ export default function ChatPage() {
                   m.role === "user" ? "self-end rounded-br-md bg-primary text-primary-foreground" : "self-start rounded-bl-md border border-premium bg-white text-premium shadow-premium",
                 ].join(" ")}
               >
-                {m.text}
+                <RichText text={m.text ?? ""} />
               </p>
             ),
           )}
