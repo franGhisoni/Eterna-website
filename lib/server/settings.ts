@@ -20,7 +20,7 @@ Servicios:
 Antes de la sesión de depilación láser: venir con la zona rasurada, sin cremas ni autobronceantes, y evitar el sol intenso los días previos. (Completar o corregir según los protocolos del centro.)`
 
 export const DEFAULT_SETTINGS: Settings = {
-  ai: { model: "gpt-5.6-luna", reasoning: "low", knowledge: DEFAULT_KNOWLEDGE },
+  ai: { model: "gpt-6-luna", reasoning: "low", knowledge: DEFAULT_KNOWLEDGE },
   business: {
     name: "Eterna",
     address: "José Pereyra Lucena 575, Lomas de Zamora, Buenos Aires",

@@ -697,7 +697,7 @@ function PatientsTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
 
 /* ───────────── Asistente IA ───────────── */
 
-const MODELS = ["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.1", "gpt-5-mini", "gpt-5-nano", "gpt-4.1-mini"]
+const MODELS = ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"]
 const EFFORTS: Array<{ value: ReasoningEffort; label: string }> = [
   { value: "none", label: "Sin razonamiento (modelos no razonadores)" },
   { value: "minimal", label: "Mínimo — más rápido" },
