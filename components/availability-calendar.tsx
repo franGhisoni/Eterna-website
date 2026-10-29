@@ -1,11 +1,11 @@
 "use client"
 
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Sparkles } from "lucide-react"
 
 type AvailabilityCalendarProps = {
-  availableDays: number[]
   subtitle?: string
-  whatsappPhone: string
 }
 
 function toMondayIndex(date: Date) {
@@ -31,29 +31,28 @@ function formatMonthTitle(date: Date) {
   return raw.charAt(0).toUpperCase() + raw.slice(1)
 }
 
-export function AvailabilityCalendar({ availableDays, subtitle = "Reservá tu lugar" }: AvailabilityCalendarProps) {
+export function AvailabilityCalendar({ subtitle = "Tocá un día para ver horarios y reservar" }: AvailabilityCalendarProps) {
+  const router = useRouter()
   const now = new Date()
   const year = now.getFullYear()
   const monthIndex = now.getMonth()
+  const monthKey = `${year}-${String(monthIndex + 1).padStart(2, "0")}`
   const { cells, daysInMonth } = buildMonthGrid(year, monthIndex)
+  const [availableDays, setAvailableDays] = useState<number[]>([])
+
+  useEffect(() => {
+    fetch(`/api/disponibilidad?mes=${monthKey}`)
+      .then((r) => r.json())
+      .then((d: { days?: string[] }) => setAvailableDays((d.days ?? []).map((day) => Number(day.slice(8)))))
+      .catch(() => setAvailableDays([]))
+  }, [monthKey])
 
   const monthLabel = formatMonthTitle(new Date(year, monthIndex, 1))
   const today = now.getDate()
   const availableSet = new Set(availableDays.filter((d) => d >= today && d <= daysInMonth))
   const hasAvailability = availableSet.size > 0
 
-  const buildWhatsAppUrl = (day: number) => {
-    const date = new Date(year, monthIndex, day)
-    const dateLabel = new Intl.DateTimeFormat("es-AR", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-    }).format(date)
-    const message = encodeURIComponent(
-      `Hola! Estoy interesada en reservar una cita para el ${dateLabel}. ¿Qué horarios tenés disponibles?`
-    )
-    return `https://wa.me/${whatsappPhone}?text=${message}`
-  }
+  const openDay = (day: number) => router.push(`/chat?fecha=${monthKey}-${String(day).padStart(2, "0")}`)
 
   return (
     <div className="liquid-glass liquid-glass-strong h-full rounded-[1.5rem] shadow-[0_10px_28px_rgba(0,0,0,0.10)]">
@@ -107,7 +106,7 @@ export function AvailabilityCalendar({ availableDays, subtitle = "Reservá tu lu
                       aria-label={isAvailable ? `${new Intl.DateTimeFormat("es-AR", { dateStyle: "full" }).format(new Date(year, monthIndex, day))}, disponible` : `${new Intl.DateTimeFormat("es-AR", { dateStyle: "full" }).format(new Date(year, monthIndex, day))}, no disponible`}
                       onClick={() => {
                         if (!isAvailable) return
-                        window.open(buildWhatsAppUrl(day), "_blank", "noopener,noreferrer")
+                        openDay(day)
                       }}
                       className={[
                         "relative h-full w-full rounded-full text-[13px] font-medium",
@@ -145,7 +144,7 @@ export function AvailabilityCalendar({ availableDays, subtitle = "Reservá tu lu
             <span className="text-xs text-premium/70">{hasAvailability ? "Fechas disponibles" : "Disponibilidad a confirmar"}</span>
           </div>
           <span className="text-xs text-premium/60">
-            {hasAvailability ? Array.from(availableSet).map((d) => String(d).padStart(2, "0")).join(" · ") : "WhatsApp"}
+            {hasAvailability ? `${availableSet.size} ${availableSet.size === 1 ? "día" : "días"} con turnos` : "Consultá en el chat"}
           </span>
           </div>
         </div>

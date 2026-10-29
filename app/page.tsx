@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Menu, X, Phone, MapPin, Clock, Star, Sparkles, Heart, ShieldCheck, Building2, Stethoscope, Check } from "lucide-react"
+import { Menu, X, Phone, MapPin, Clock, Star, Sparkles, Heart, ShieldCheck, Building2, Stethoscope, Check, MessageCircle } from "lucide-react"
 import { AvailabilityCalendar } from "@/components/availability-calendar"
 
 export default function HomePage() {
@@ -11,7 +11,6 @@ export default function HomePage() {
   const isScrolled = scrollY > 8
   const heroCardParallaxY = Math.min(scrollY * 0.14, 120)
   const heroCardParallaxX = Math.max(-scrollY * 0.03, -24)
-  const availableDaysThisMonth = [13, 27]
   const whatsappPhone = "541140420769"
   const aboutImageRef = useRef<HTMLDivElement | null>(null)
   const menuButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -271,13 +270,22 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
 
                   <div className="mt-5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                     <Button
-                      onClick={() => handleWhatsAppClick()}
+                      asChild
                       className="h-11 rounded-xl bg-primary text-primary-foreground px-5 text-sm shadow-[0_10px_26px_rgba(136,38,38,0.22)] hover:bg-primary/90 transition-premium"
                     >
-                      <Phone className="mr-2 h-4 w-4" />
-                      Reservar por WhatsApp
+                      <a href="/chat">
+                        <MessageCircle className="mr-2 h-4 w-4" />
+                        Reservar turno online
+                      </a>
                     </Button>
-                    <p className="text-xs text-premium/65 sm:self-center">Te respondemos para confirmar tu horario.</p>
+                    <button
+                      type="button"
+                      onClick={() => handleWhatsAppClick()}
+                      className="inline-flex items-center gap-1.5 text-xs text-premium/70 underline-offset-4 hover:text-primary hover:underline sm:self-center"
+                    >
+                      <Phone className="h-3.5 w-3.5" />
+                      o escribinos por WhatsApp
+                    </button>
                   </div>
                 </div>
               </div>
@@ -285,7 +293,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
 
             <div className="lg:col-span-6 flex lg:justify-end items-stretch">
               <div className="w-full max-w-[520px] h-full animate-in fade-in slide-in-from-right-4 duration-700">
-                <AvailabilityCalendar availableDays={availableDaysThisMonth} whatsappPhone={whatsappPhone} />
+                <AvailabilityCalendar />
               </div>
             </div>
           </div>
@@ -326,7 +334,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
 
             {/* CTA Button */}
             {/* <Button 
-              onClick={handleWhatsAppClick}
+              onClick={() => handleWhatsAppClick()}
               size="lg"
               className="bg-primary text-primary-foreground hover:bg-primary/90 text-lg px-8 py-6 rounded-xl shadow-premium-lg transition-premium hover:scale-105"
             >
@@ -424,7 +432,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <Button
-                  onClick={handleWhatsAppClick}
+                  onClick={() => handleWhatsAppClick()}
                   className="h-11 rounded-xl bg-primary text-primary-foreground px-6 text-sm shadow-[0_10px_26px_rgba(136,38,38,0.22)] hover:bg-primary/90 transition-premium"
                 >
                   <Phone className="mr-2 h-4 w-4" />
@@ -497,11 +505,8 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
                     <li className="flex gap-2"><Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Evaluación y seguimiento personalizado</li>
                     <li className="flex gap-2"><Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Reducción progresiva según cada caso</li>
                   </ul>
-                  <Button
-                    onClick={() => handleWhatsAppClick("depilación láser")}
-                    className="w-full h-11 bg-primary text-primary-foreground hover:bg-primary/90 transition-premium"
-                  >
-                    Consultar Precios
+                  <Button asChild className="w-full h-11 bg-primary text-primary-foreground hover:bg-primary/90 transition-premium">
+                    <a href={`/chat?q=${encodeURIComponent("Quiero saber precios y turnos de depilación láser")}`}>Consultar precios y turnos</a>
                   </Button>
                 </div>
               </div>
@@ -523,11 +528,8 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
                     <li className="flex gap-2"><Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-accent" />Enfoque sutil y equilibrado</li>
                     <li className="flex gap-2"><Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-accent" />Información clara antes de decidir</li>
                   </ul>
-                  <Button
-                    onClick={() => handleWhatsAppClick("medicina estética")}
-                    className="w-full h-11 bg-accent text-accent-foreground hover:bg-accent/90 transition-premium"
-                  >
-                    Más Información
+                  <Button asChild className="w-full h-11 bg-accent text-accent-foreground hover:bg-accent/90 transition-premium">
+                    <a href={`/chat?q=${encodeURIComponent("Quiero información sobre medicina estética")}`}>Más información</a>
                   </Button>
                 </div>
               </div>
@@ -545,8 +547,8 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
                     Nuestro tratamiento recientemente incorporado de ultrasonido focalizado para un enfoque de lifting no invasivo.
                   </p>
                   <p className="text-sm text-premium/75">Consultá si HIFU es adecuado para vos.</p>
-                  <Button onClick={() => handleWhatsAppClick("HIFU")} className="w-full h-11 bg-primary text-primary-foreground hover:bg-primary/90 transition-premium">
-                    Consultar por HIFU
+                  <Button asChild className="w-full h-11 bg-primary text-primary-foreground hover:bg-primary/90 transition-premium">
+                    <a href={`/chat?q=${encodeURIComponent("Quiero saber si HIFU es adecuado para mí")}`}>Consultar por HIFU</a>
                   </Button>
                 </div>
               </div>
@@ -650,7 +652,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
 
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                   {/* <Button
-                    onClick={handleWhatsAppClick}
+                    onClick={() => handleWhatsAppClick()}
                     className="h-11 rounded-xl bg-primary text-primary-foreground px-6 text-sm shadow-[0_10px_26px_rgba(136,38,38,0.22)] hover:bg-primary/90 transition-premium"
                   >
                     <Phone className="mr-2 h-4 w-4" />
@@ -945,7 +947,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
                     </a>
                   </Button>
                   <Button
-                    onClick={handleWhatsAppClick}
+                    onClick={() => handleWhatsAppClick()}
                     className="h-11 rounded-xl bg-primary text-primary-foreground px-6 text-sm shadow-[0_10px_26px_rgba(136,38,38,0.22)] hover:bg-primary/90 transition-premium"
                   >
                     <Phone className="mr-2 h-4 w-4" />
@@ -984,7 +986,7 @@ bg-gradient-to-b from-white/99 via-white/15 to-transparent bg-clip-text text-tra
                 </p>
                 <div className="mt-7 flex justify-center">
                   <Button
-                    onClick={handleWhatsAppClick}
+                    onClick={() => handleWhatsAppClick()}
                     size="lg"
                     className="h-12 rounded-xl bg-primary text-primary-foreground px-8 text-base shadow-[0_12px_30px_rgba(136,38,38,0.22)] hover:bg-primary/90 transition-premium hover:scale-[1.02]"
                   >
