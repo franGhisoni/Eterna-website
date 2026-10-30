@@ -31,7 +31,8 @@ type Booking = {
   deposit: number
   price: number
   mp_payment_id: string | null
-  state: "pending_payment" | "confirmed" | "cancelled" | "conflict" | "expired"
+  has_receipt: boolean
+  state: "pending_payment" | "pending_review" | "confirmed" | "cancelled" | "conflict" | "expired"
 }
 type RangeRow = { start: string; end: string }
 
@@ -162,6 +163,7 @@ export function AdminApp() {
 const STATE_LABEL: Record<Booking["state"], { label: string; cls: string }> = {
   confirmed: { label: "Confirmado", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   pending_payment: { label: "Esperando seña", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  pending_review: { label: "Comprobante a revisar", cls: "bg-sky-50 text-sky-700 border-sky-200" },
   expired: { label: "Seña vencida", cls: "bg-stone-100 text-stone-500 border-stone-200" },
   cancelled: { label: "Cancelado", cls: "bg-stone-100 text-stone-500 border-stone-200" },
   conflict: { label: "Pagado · revisar", cls: "bg-red-50 text-red-700 border-red-200" },
@@ -235,6 +237,9 @@ function BookingsTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
                   </div>
                   <span className={`w-fit shrink-0 rounded-full border px-2.5 py-0.5 text-xs ${STATE_LABEL[b.state].cls}`}>{STATE_LABEL[b.state].label}</span>
                   <div className="flex shrink-0 gap-2">
+                    {b.has_receipt && (
+                      <a href={`/api/admin/bookings/${b.id}/comprobante`} target="_blank" rel="noreferrer" className={`${btnGhost} h-8 px-3 text-xs`}>Ver comprobante</a>
+                    )}
                     {b.state !== "confirmed" && b.state !== "cancelled" && (
                       <button onClick={() => change(b, "confirmed")} className={`${btnGhost} h-8 px-3 text-xs`}>Confirmar</button>
                     )}
@@ -750,7 +755,8 @@ function AiTab({ settings, status, save }: { settings: Settings; status: Status 
 function ConfigTab({ settings, status, save }: { settings: Settings; status: Status | null; save: (s: Settings) => Promise<void> }) {
   const [business, setBusiness] = useState(settings.business)
   const [booking, setBooking] = useState(settings.booking)
-  const dirty = JSON.stringify({ business, booking }) !== JSON.stringify({ business: settings.business, booking: settings.booking })
+  const [transfer, setTransfer] = useState(settings.transfer)
+  const dirty = JSON.stringify({ business, booking, transfer }) !== JSON.stringify({ business: settings.business, booking: settings.booking, transfer: settings.transfer })
   const webhookUrl = typeof window !== "undefined" ? `${window.location.origin}/api/mp/webhook` : ""
   const num = (v: string) => Number(v)
 
@@ -761,7 +767,7 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
           <h1 className="font-serif text-2xl font-bold text-premium">Configuración</h1>
           <p className="text-sm text-premium/60">Datos del centro, reglas de reserva e integraciones.</p>
         </div>
-        <button onClick={() => save({ ...settings, business, booking })} disabled={!dirty} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
+        <button onClick={() => save({ ...settings, business, booking, transfer })} disabled={!dirty} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
       </div>
 
       <div className={`${panel} grid gap-4 sm:grid-cols-2`}>
@@ -780,13 +786,24 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
         <label className="text-xs text-premium/60">Turnos simultáneos<input type="number" min={1} value={booking.capacity} onChange={(e) => setBooking({ ...booking, capacity: num(e.target.value) })} className={`${field} mt-1`} /></label>
       </div>
 
+      <div className={`${panel} grid gap-4 sm:grid-cols-2`}>
+        <div className="sm:col-span-2">
+          <p className="font-medium text-premium">Transferencia</p>
+          <p className="text-xs text-premium/55">Se ofrece cuando Mercado Pago no está configurado. El cliente transfiere la seña y sube el comprobante, que revisás en Turnos.</p>
+        </div>
+        <label className="text-xs text-premium/60">Alias<input value={transfer.alias} onChange={(e) => setTransfer({ ...transfer, alias: e.target.value })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-premium/60">CBU/CVU (opcional)<input inputMode="numeric" value={transfer.cbu} onChange={(e) => setTransfer({ ...transfer, cbu: e.target.value })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-premium/60">Titular (opcional)<input value={transfer.holder} onChange={(e) => setTransfer({ ...transfer, holder: e.target.value })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-premium/60">Banco o billetera (opcional)<input value={transfer.bank} onChange={(e) => setTransfer({ ...transfer, bank: e.target.value })} className={`${field} mt-1`} /></label>
+      </div>
+
       {status && (
         <div className={`${panel} space-y-3 text-sm`}>
           <p className="font-medium text-premium">Integraciones</p>
           <p className="text-premium/75">OpenAI: {status.openai ? "conectado" : "falta OPENAI_API_KEY"}</p>
           <p className="text-premium/75">
             Mercado Pago:{" "}
-            {status.mercadoPago === "off" ? "falta MERCADOPAGO_ACCESS_TOKEN (la seña se coordina por WhatsApp)" : status.mercadoPago === "test" ? "modo prueba (credenciales TEST)" : "producción — los cobros son reales"}
+            {status.mercadoPago === "off" ? transfer.alias ? "falta MERCADOPAGO_ACCESS_TOKEN (la seña se paga por transferencia)" : "falta MERCADOPAGO_ACCESS_TOKEN y no hay alias cargado (la seña se coordina por WhatsApp)" : status.mercadoPago === "test" ? "modo prueba (credenciales TEST)" : "producción — los cobros son reales"}
           </p>
           {status.mercadoPago !== "off" && (
             <p className="text-premium/75">

@@ -120,7 +120,7 @@ Cómo reservar:
 - Necesitás el servicio (zona o combo puntual) y el día o rango de días que prefiere. Pedí solo lo que falte, de a una cosa por vez.
 - Buscá turnos con buscar_horarios y no los enumeres en el texto: ya aparecen en pantalla. Decí solo una frase para que elija.
 - Cuando elija uno, pedí nombre y teléfono si faltan (el email es opcional), repetí el resumen (servicio, día y hora, precio y seña) y pedí confirmación explícita antes de llamar a reservar_turno.
-- Si el servicio tiene seña, después de reservar contá que el turno queda guardado ${settings.booking.holdMinutes} minutos hasta que pague la seña con el botón de Mercado Pago. Nunca digas que algo está pagado: lo confirma el sistema.
+- Si el servicio tiene seña, después de reservar contá que el turno queda guardado ${settings.booking.holdMinutes} minutos hasta que pague la seña con lo que aparece en pantalla: botón de Mercado Pago o, si la herramienta indica transferencia, los datos para transferir y subir el comprobante. Con transferencia, el turno se confirma recién cuando el equipo revisa el comprobante. Nunca digas que algo está pagado o confirmado: lo confirma el sistema.
 - Si una herramienta devuelve error, no inventes la causa; ofrecé buscar otro horario o derivar a WhatsApp.
 - Cambios, cancelaciones y reclamos se resuelven por WhatsApp con derivar_whatsapp.
 
@@ -229,16 +229,18 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
       }
     }
     const wa = whatsappUrl(b.whatsapp, `Hola! Reservé ${bk.service_name} para el ${formatSlot(bk.starts_at)} a nombre de ${bk.name} y quiero coordinar la seña.`)
+    const transfer = !checkoutUrl && settings.transfer.alias ? settings.transfer : null
     return {
       output: {
         reservado: true,
         estado: "pendiente_de_pago",
         sena: bk.deposit,
         reservado_por_minutos: settings.booking.holdMinutes,
-        pago_online: !!checkoutUrl,
-        ...(checkoutUrl ? {} : { nota: "El pago online no está disponible ahora: pedile que coordine la seña por WhatsApp con el botón." }),
+        medio_de_pago: checkoutUrl ? "mercado_pago" : transfer ? "transferencia" : "whatsapp",
+        ...(transfer ? { nota: "Los datos para transferir y el lugar para subir el comprobante ya están en pantalla. No los repitas." } : {}),
+        ...(!checkoutUrl && !transfer ? { nota: "El pago online no está disponible ahora: pedile que coordine la seña por WhatsApp con el botón." } : {}),
       },
-      card: { type: "payment", bookingId: bk.id, rows: [...rows, ["Seña", formatARS(bk.deposit)]], amount: bk.deposit, checkoutUrl, whatsappUrl: wa },
+      card: { type: "payment", bookingId: bk.id, rows: [...rows, ["Seña", formatARS(bk.deposit)]], amount: bk.deposit, checkoutUrl, whatsappUrl: wa, transfer },
     }
   }
 
@@ -299,7 +301,7 @@ export async function runChat(message: string, previousId: string | undefined, s
         }),
       })
     } catch (e) {
-      console.error("chat: OpenAI sin respuesta", e instanceof Error ? e.message : e)
+      console.error("chat: OpenAI sin respuesta", e instanceof Error ? `${e.message} ${String(e.cause ?? "")}` : e)
       throw new ChatError("sin_respuesta")
     }
     const data = (await res.json().catch(() => ({}))) as { id?: string; output?: OutputItem[]; error?: { message?: string } }

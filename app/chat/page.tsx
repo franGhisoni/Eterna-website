@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { ArrowLeft, ArrowUp, CalendarCheck, Clock, MapPin, MessageCircle, Navigation, RotateCcw } from "lucide-react"
 import type { ChatCard, ChatOutput, ChatResponse } from "@/lib/chat-types"
 import { DAY_RE, formatARS, formatDay } from "@/lib/time"
+import { TransferPayment } from "@/components/transfer-payment"
 
 type Message = { id: number; role: "user" | "assistant"; text?: string; card?: ChatCard }
 
@@ -31,7 +32,7 @@ function RichText({ text }: { text: string }) {
   return <>{text.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <strong key={i} className="font-semibold">{part}</strong> : part))}</>
 }
 
-function Card({ card, send }: { card: ChatCard; send: (text: string) => void }) {
+function Card({ card, send, onReceipt }: { card: ChatCard; send: (text: string) => void; onReceipt: () => void }) {
   const base = "w-full rounded-2xl border border-premium bg-white p-5 shadow-premium"
   if (card.type === "services") {
     const groups = new Map<string, typeof card.items>()
@@ -106,6 +107,8 @@ function Card({ card, send }: { card: ChatCard; send: (text: string) => void }) 
             <a href={card.checkoutUrl} className="mt-4 flex h-12 items-center justify-center rounded-xl bg-[#009ee3] px-5 text-sm font-semibold text-white transition-premium hover:bg-[#0089c7]">
               Pagar seña de {formatARS(card.amount)} con Mercado Pago
             </a>
+          ) : card.transfer ? (
+            <TransferPayment bookingId={card.bookingId} amount={card.amount} transfer={card.transfer} onSent={onReceipt} />
           ) : (
             <a href={card.whatsappUrl} target="_blank" rel="noreferrer" className="mt-4 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground transition-premium hover:bg-primary/90">
               <MessageCircle className="h-4 w-4" /> Coordinar la seña por WhatsApp
@@ -151,6 +154,7 @@ export default function ChatPage() {
   const endRef = useRef<HTMLDivElement>(null)
   const boxRef = useRef<HTMLTextAreaElement>(null)
   const started = useRef(false)
+  const pendingContext = useRef<string[]>([])
 
   useEffect(() => {
     if (started.current) return
@@ -189,7 +193,7 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, previousResponseId: responseId.current }),
+        body: JSON.stringify({ message: [...pendingContext.current.splice(0), text].join("\n"), previousResponseId: responseId.current }),
       })
       const data = (await res.json().catch(() => ({ ok: false, error: "error_interno" }))) as ChatResponse
       if (!data.ok) {
@@ -238,7 +242,7 @@ export default function ChatPage() {
           {messages.map((m) =>
             m.card ? (
               <div key={m.id} className="w-full max-w-[34rem] self-start">
-                <Card card={m.card} send={(t) => void send(t)} />
+                <Card card={m.card} send={(t) => void send(t)} onReceipt={() => pendingContext.current.push("[sistema: la persona subió el comprobante de transferencia; el equipo lo revisa y el turno todavía no está confirmado]")} />
               </div>
             ) : (
               <p

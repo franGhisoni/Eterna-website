@@ -6,7 +6,9 @@ export type AiSettings = { model: string; reasoning: ReasoningEffort; knowledge:
 export type BusinessSettings = { name: string; address: string; whatsapp: string; hours: string }
 export type BookingSettings = { slotMinutes: number; minHoursAhead: number; holdMinutes: number; capacity: number }
 
-export type Settings = { ai: AiSettings; business: BusinessSettings; booking: BookingSettings }
+export type TransferSettings = { alias: string; holder: string; bank: string; cbu: string }
+
+export type Settings = { ai: AiSettings; business: BusinessSettings; booking: BookingSettings; transfer: TransferSettings }
 
 export const REASONING_EFFORTS: ReasoningEffort[] = ["none", "minimal", "low", "medium", "high"]
 
@@ -28,6 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
     hours: "Lunes a viernes de 10 a 19 hs",
   },
   booking: { slotMinutes: 30, minHoursAhead: 12, holdMinutes: 30, capacity: 1 },
+  transfer: { alias: "", holder: "", bank: "", cbu: "" },
 }
 
 export async function getSettings(): Promise<Settings> {
@@ -49,6 +52,7 @@ export function sanitizeSettings(input: Partial<Record<keyof Settings, Record<st
   const ai = input.ai ?? {}
   const business = input.business ?? {}
   const booking = input.booking ?? {}
+  const transfer = input.transfer ?? {}
   const reasoning = REASONING_EFFORTS.includes(ai.reasoning as ReasoningEffort) ? (ai.reasoning as ReasoningEffort) : current.ai.reasoning
   const model = str(ai.model, 80, current.ai.model)
   return {
@@ -68,6 +72,12 @@ export function sanitizeSettings(input: Partial<Record<keyof Settings, Record<st
       minHoursAhead: clampInt(booking.minHoursAhead, 0, 24 * 14, current.booking.minHoursAhead),
       holdMinutes: clampInt(booking.holdMinutes, 10, 24 * 60, current.booking.holdMinutes),
       capacity: clampInt(booking.capacity, 1, 20, current.booking.capacity),
+    },
+    transfer: {
+      alias: str(transfer.alias, 60, current.transfer.alias),
+      holder: str(transfer.holder, 120, current.transfer.holder),
+      bank: str(transfer.bank, 80, current.transfer.bank),
+      cbu: str(transfer.cbu, 30, current.transfer.cbu).replace(/\D/g, ""),
     },
   }
 }

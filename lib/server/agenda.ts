@@ -22,7 +22,7 @@ export type Service = {
 
 export type Range = { day: string; start_time: string; end_time: string }
 
-export type BookingStatus = "pending_payment" | "confirmed" | "cancelled" | "conflict"
+export type BookingStatus = "pending_payment" | "pending_review" | "confirmed" | "cancelled" | "conflict"
 
 export type Booking = {
   id: string
@@ -43,7 +43,7 @@ export type Booking = {
 }
 
 // a booking blocks its slot while confirmed, while its payment hold is alive, or when it was paid late into a taken slot
-const BLOCKING = `(status in ('confirmed', 'conflict') or (status = 'pending_payment' and expires_at > now()))`
+const BLOCKING = `(status in ('confirmed', 'conflict', 'pending_review') or (status = 'pending_payment' and expires_at > now()))`
 
 export async function listServices(activeOnly = true): Promise<Service[]> {
   const { rows } = await (await db()).query<Service>(
@@ -219,10 +219,32 @@ export async function markBookingPaid(id: string, paymentId: string, amount: num
   })
 }
 
-export async function listBookings(fromDay: string): Promise<Booking[]> {
+export type ReceiptResult = "ok" | "not_found" | "expired" | "already_sent"
+
+/** Stores the transfer receipt and frees the booking from its payment timer: the team confirms it after checking the money arrived. */
+export async function submitReceipt(id: string, receipt: { name: string; mime: string; data: Buffer }): Promise<ReceiptResult> {
+  return transaction(async (c) => {
+    const { rows } = await c.query<Booking>("select * from bookings where id = $1 for update", [id])
+    const b = rows[0]
+    if (!b) return "not_found"
+    if (b.status === "pending_review") return "already_sent"
+    if (bookingState(b) !== "pending_payment") return "expired"
+    await c.query("insert into booking_receipts (booking_id, name, mime, data) values ($1, $2, $3, $4)", [id, receipt.name, receipt.mime, receipt.data])
+    await c.query("update bookings set status = 'pending_review', expires_at = null where id = $1", [id])
+    return "ok"
+  })
+}
+
+export async function getReceipt(id: string): Promise<{ name: string; mime: string; data: Buffer } | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null
+  const { rows } = await (await db()).query<{ name: string; mime: string; data: Buffer }>("select name, mime, data from booking_receipts where booking_id = $1", [id])
+  return rows[0] ?? null
+}
+
+export async function listBookings(fromDay: string): Promise<Array<Booking & { has_receipt: boolean }>> {
   if (!DAY_RE.test(fromDay)) return []
-  const { rows } = await (await db()).query<Booking>(
-    "select * from bookings where starts_at >= $1 order by starts_at limit 500",
+  const { rows } = await (await db()).query<Booking & { has_receipt: boolean }>(
+    "select b.*, exists (select 1 from booking_receipts r where r.booking_id = b.id) as has_receipt from bookings b where b.starts_at >= $1 order by b.starts_at limit 500",
     [toInstant(fromDay, "00:00")],
   )
   return rows

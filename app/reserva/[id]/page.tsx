@@ -5,6 +5,7 @@ import { applyPayment, mercadoPagoEnabled } from "@/lib/server/mercadopago"
 import { bookingState, getBooking } from "@/lib/server/agenda"
 import { getSettings, mapsDirectionsUrl, whatsappUrl } from "@/lib/server/settings"
 import { formatARS, formatSlot } from "@/lib/time"
+import { ReservaTransfer } from "./reserva-transfer"
 
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Tu reserva | Eterna", robots: { index: false } }
@@ -12,6 +13,7 @@ export const metadata = { title: "Tu reserva | Eterna", robots: { index: false }
 const COPY = {
   confirmed: { title: "Tu turno está confirmado", text: "Recibimos la seña. Te esperamos.", icon: CalendarCheck },
   pending_payment: { title: "Falta pagar la seña", text: "Tu turno está guardado por unos minutos. Pagá la seña para confirmarlo.", icon: Clock },
+  pending_review: { title: "Estamos revisando tu comprobante", text: "Tu horario queda reservado. Cuando el equipo verifique la transferencia, te confirma el turno.", icon: Clock },
   expired: { title: "La reserva venció", text: "No recibimos la seña a tiempo y el horario se liberó. Podés buscar otro turno.", icon: TriangleAlert },
   cancelled: { title: "Reserva cancelada", text: "Este turno fue cancelado. Si es un error, escribinos.", icon: TriangleAlert },
   conflict: { title: "Recibimos tu pago", text: "El horario se ocupó mientras pagabas. Te vamos a contactar para reprogramar o devolverte la seña.", icon: TriangleAlert },
@@ -64,6 +66,9 @@ export default async function ReservaPage({ params, searchParams }: { params: { 
             </div>
           ))}
         </dl>
+        {state === "pending_payment" && !mercadoPagoEnabled() && settings.transfer.alias && (
+          <ReservaTransfer bookingId={booking.id} amount={booking.deposit} transfer={settings.transfer} />
+        )}
         <div className="mt-7 flex flex-col gap-3">
           {state === "pending_payment" && mercadoPagoEnabled() && (
             <a href={`/api/reserva/${booking.id}/pagar`} className="inline-flex h-12 items-center justify-center rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground shadow-[0_10px_26px_rgba(136,38,38,0.22)] transition-premium hover:bg-primary/90">

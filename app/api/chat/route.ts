@@ -11,7 +11,7 @@ const STATUS: Record<ChatError["code"], number> = { sin_modelo: 503, modelo_no_d
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as { message?: unknown; previousResponseId?: unknown }
   const message = typeof body.message === "string" ? body.message.trim() : ""
-  if (!message || message.length > 1500) return NextResponse.json({ ok: false, error: "mensaje_invalido" }, { status: 400 })
+  if (!message || message.length > 2000) return NextResponse.json({ ok: false, error: "mensaje_invalido" }, { status: 400 })
   const prev = typeof body.previousResponseId === "string" && /^resp_[A-Za-z0-9_-]{1,200}$/.test(body.previousResponseId) ? body.previousResponseId : undefined
   if (!rateLimit(`chat:${clientIp()}`, 40, 10 * 60_000)) return NextResponse.json({ ok: false, error: "demasiados_mensajes" }, { status: 429 })
   try {

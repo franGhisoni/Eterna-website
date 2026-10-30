@@ -47,6 +47,13 @@ alter table services add column if not exists category text not null default '';
 alter table services add column if not exists kind text not null default '';
 alter table services add column if not exists gender text not null default '';
 alter table services add column if not exists detail text not null default '';
+create table if not exists booking_receipts (
+  booking_id uuid primary key references bookings(id) on delete cascade,
+  name text not null,
+  mime text not null,
+  data bytea not null,
+  created_at timestamptz not null default now()
+);
 create table if not exists patients (
   id serial primary key,
   name text not null,
