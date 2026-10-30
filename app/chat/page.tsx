@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { ArrowLeft, ArrowUp, CalendarCheck, Clock, MapPin, MessageCircle, Navigation, RotateCcw } from "lucide-react"
 import type { ChatCard, ChatOutput, ChatResponse } from "@/lib/chat-types"
 import { DAY_RE, formatARS, formatDay } from "@/lib/time"
-import { TransferPayment } from "@/components/transfer-payment"
+import { TransferPayment, type ReceiptOutcome } from "@/components/transfer-payment"
 
 type Message = { id: number; role: "user" | "assistant"; text?: string; card?: ChatCard }
 
@@ -32,7 +32,7 @@ function RichText({ text }: { text: string }) {
   return <>{text.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <strong key={i} className="font-semibold">{part}</strong> : part))}</>
 }
 
-function Card({ card, send, onReceipt }: { card: ChatCard; send: (text: string) => void; onReceipt: () => void }) {
+function Card({ card, send, onReceipt }: { card: ChatCard; send: (text: string) => void; onReceipt: (outcome: ReceiptOutcome) => void }) {
   const base = "w-full rounded-2xl border border-premium bg-white p-5 shadow-premium"
   if (card.type === "services") {
     const groups = new Map<string, typeof card.items>()
@@ -242,7 +242,13 @@ export default function ChatPage() {
           {messages.map((m) =>
             m.card ? (
               <div key={m.id} className="w-full max-w-[34rem] self-start">
-                <Card card={m.card} send={(t) => void send(t)} onReceipt={() => pendingContext.current.push("[sistema: la persona subió el comprobante de transferencia; el equipo lo revisa y el turno todavía no está confirmado]")} />
+                <Card card={m.card} send={(t) => void send(t)} onReceipt={(outcome) =>
+                    pendingContext.current.push(
+                      outcome === "confirmed"
+                        ? "[sistema: el comprobante de transferencia coincidió y el turno quedó confirmado]"
+                        : "[sistema: la persona subió el comprobante de transferencia; el equipo lo revisa y el turno todavía no está confirmado]",
+                    )
+                  } />
               </div>
             ) : (
               <p

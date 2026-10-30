@@ -1,8 +1,12 @@
+import { createHash } from "node:crypto"
 import { NextResponse, type NextRequest } from "next/server"
-import { submitReceipt } from "@/lib/server/agenda"
+import { bookingState, getBooking, receiptAlreadyUsed, saveReceipt } from "@/lib/server/agenda"
 import { clientIp, rateLimit } from "@/lib/server/http"
+import { readReceipt } from "@/lib/server/receipts"
+import { getSettings } from "@/lib/server/settings"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 90
 
 const MAX_BYTES = 5 * 1024 * 1024
 
@@ -15,20 +19,35 @@ function detectMime(b: Buffer): string | null {
   return null
 }
 
-const STATUS = { not_found: 404, expired: 409, already_sent: 409 } as const
+const fail = (error: string, status: number) => NextResponse.json({ error }, { status })
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  if (!/^[0-9a-f-]{36}$/i.test(params.id)) return NextResponse.json({ error: "not_found" }, { status: 404 })
-  if (!rateLimit(`receipt:${clientIp()}`, 10, 10 * 60_000)) return NextResponse.json({ error: "demasiados_intentos" }, { status: 429 })
-  if (Number(req.headers.get("content-length") ?? 0) > MAX_BYTES + 64 * 1024) return NextResponse.json({ error: "archivo_grande" }, { status: 413 })
+  if (!/^[0-9a-f-]{36}$/i.test(params.id)) return fail("not_found", 404)
+  if (!rateLimit(`receipt:${clientIp()}`, 10, 10 * 60_000)) return fail("demasiados_intentos", 429)
+  if (Number(req.headers.get("content-length") ?? 0) > MAX_BYTES + 64 * 1024) return fail("archivo_grande", 413)
   const form = await req.formData().catch(() => null)
   const file = form?.get("file")
-  if (!(file instanceof File) || file.size === 0) return NextResponse.json({ error: "archivo_invalido" }, { status: 400 })
-  if (file.size > MAX_BYTES) return NextResponse.json({ error: "archivo_grande" }, { status: 413 })
+  if (!(file instanceof File) || file.size === 0) return fail("archivo_invalido", 400)
+  if (file.size > MAX_BYTES) return fail("archivo_grande", 413)
   const data = Buffer.from(await file.arrayBuffer())
   const mime = detectMime(data)
-  if (!mime) return NextResponse.json({ error: "archivo_invalido" }, { status: 400 })
-  const result = await submitReceipt(params.id, { name: file.name.slice(0, 160), mime, data })
-  if (result !== "ok") return NextResponse.json({ error: result }, { status: STATUS[result] })
-  return NextResponse.json({ ok: true })
+  if (!mime) return fail("archivo_invalido", 400)
+
+  const booking = await getBooking(params.id)
+  if (!booking) return fail("not_found", 404)
+  if (booking.status === "pending_review" || booking.status === "confirmed") return fail("already_sent", 409)
+  if (bookingState(booking) !== "pending_payment") return fail("expired", 409)
+
+  const sha256 = createHash("sha256").update(data).digest("hex")
+  if (await receiptAlreadyUsed(sha256, booking.id)) return fail("comprobante_usado", 409)
+
+  const { ai, transfer } = await getSettings()
+  const verdict = transfer.alias || transfer.cbu ? await readReceipt({ name: file.name, mime, data }, { amount: booking.deposit, account: transfer }, ai.model) : null
+  const askedForReview = form?.get("revision") === "1"
+  const status = verdict?.result === "coincide" ? "confirmed" : !verdict || askedForReview ? "pending_review" : "pending_payment"
+
+  const saved = await saveReceipt(booking.id, { name: file.name.slice(0, 160), mime, data, sha256, verdict }, status)
+  if (saved === "already_sent") return fail("already_sent", 409)
+  if (saved !== "ok") return fail("expired", 409)
+  return NextResponse.json({ ok: true, result: verdict?.result ?? "sin_lectura", reason: verdict?.reason ?? "", status })
 }

@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg"
 import { db, transaction } from "./db"
+import type { Verdict } from "./receipts"
 import type { BookingSettings } from "./settings"
 import { addDays, DAY_RE, minutesOf, TIME_RE, toInstant, todayAR } from "../time"
 
@@ -221,17 +222,59 @@ export async function markBookingPaid(id: string, paymentId: string, amount: num
 
 export type ReceiptResult = "ok" | "not_found" | "expired" | "already_sent"
 
-/** Stores the transfer receipt and frees the booking from its payment timer: the team confirms it after checking the money arrived. */
-export async function submitReceipt(id: string, receipt: { name: string; mime: string; data: Buffer }): Promise<ReceiptResult> {
+/** Keeps the latest attempt. A failed reading leaves the payment timer running so the person can retry. */
+export async function saveReceipt(
+  id: string,
+  receipt: { name: string; mime: string; data: Buffer; sha256: string; verdict: Verdict | null },
+  status: "confirmed" | "pending_review" | "pending_payment",
+): Promise<ReceiptResult> {
   return transaction(async (c) => {
     const { rows } = await c.query<Booking>("select * from bookings where id = $1 for update", [id])
     const b = rows[0]
     if (!b) return "not_found"
-    if (b.status === "pending_review") return "already_sent"
+    if (b.status === "pending_review" || b.status === "confirmed") return "already_sent"
     if (bookingState(b) !== "pending_payment") return "expired"
-    await c.query("insert into booking_receipts (booking_id, name, mime, data) values ($1, $2, $3, $4)", [id, receipt.name, receipt.mime, receipt.data])
-    await c.query("update bookings set status = 'pending_review', expires_at = null where id = $1", [id])
+    await c.query(
+      `insert into booking_receipts (booking_id, name, mime, data, sha256, ai_result, ai_reason, ai_reading, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, now())
+       on conflict (booking_id) do update set name = excluded.name, mime = excluded.mime, data = excluded.data, sha256 = excluded.sha256,
+         ai_result = excluded.ai_result, ai_reason = excluded.ai_reason, ai_reading = excluded.ai_reading, created_at = now()`,
+      [id, receipt.name, receipt.mime, receipt.data, receipt.sha256, receipt.verdict?.result ?? "sin_lectura", receipt.verdict?.reason ?? "", receipt.verdict?.reading ? JSON.stringify(receipt.verdict.reading) : null],
+    )
+    if (status !== "pending_payment") await c.query("update bookings set status = $2, expires_at = null where id = $1", [id, status])
     return "ok"
+  })
+}
+
+export async function receiptAlreadyUsed(sha256: string, bookingId: string): Promise<boolean> {
+  const { rows } = await (await db()).query(
+    "select 1 from booking_receipts r join bookings b on b.id = r.booking_id where r.sha256 = $1 and r.booking_id <> $2 and b.status <> 'cancelled' limit 1",
+    [sha256, bookingId],
+  )
+  return rows.length > 0
+}
+
+export async function listTransfers() {
+  const { rows } = await (await db()).query<Booking & { file_name: string; mime: string; uploaded_at: Date; ai_result: string; ai_reason: string; ai_reading: unknown; verified_at: Date | null }>(
+    `select b.*, r.name as file_name, r.mime, r.created_at as uploaded_at, r.ai_result, r.ai_reason, r.ai_reading, r.verified_at
+     from booking_receipts r join bookings b on b.id = r.booking_id order by r.created_at desc limit 300`,
+  )
+  return rows.map((b) => ({ ...b, state: bookingState(b) }))
+}
+
+/** A person's decision after checking the bank: verify confirms the booking, reject frees the slot. */
+export async function reviewTransfer(id: string, action: "verify" | "reject"): Promise<boolean> {
+  return transaction(async (c) => {
+    const { rows } = await c.query("select 1 from booking_receipts where booking_id = $1", [id])
+    if (!rows.length) return false
+    if (action === "verify") {
+      await c.query("update booking_receipts set verified_at = now() where booking_id = $1", [id])
+      await c.query("update bookings set status = 'confirmed', expires_at = null where id = $1", [id])
+    } else {
+      await c.query("update booking_receipts set verified_at = null where booking_id = $1", [id])
+      await c.query("update bookings set status = 'cancelled' where id = $1", [id])
+    }
+    return true
   })
 }
 

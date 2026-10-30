@@ -5,11 +5,13 @@ import { Check, Copy, Upload } from "lucide-react"
 import { formatARS } from "@/lib/time"
 
 export type TransferData = { alias: string; holder: string; bank: string; cbu: string }
+export type ReceiptOutcome = "confirmed" | "review"
 
 const ERRORS: Record<string, string> = {
   archivo_grande: "El archivo pesa más de 5 MB. Probá con una captura más liviana.",
   archivo_invalido: "Subí una imagen (JPG, PNG o WebP) o un PDF.",
   expired: "La reserva venció y el horario se liberó. Buscá otro turno.",
+  comprobante_usado: "Ese comprobante ya se usó en otra reserva.",
   demasiados_intentos: "Demasiados intentos. Esperá unos minutos.",
 }
 
@@ -33,39 +35,55 @@ function CopyRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function TransferPayment({ bookingId, amount, transfer, onSent }: { bookingId: string; amount: number; transfer: TransferData; onSent?: () => void }) {
+export function TransferPayment({ bookingId, amount, transfer, onSent }: { bookingId: string; amount: number; transfer: TransferData; onSent?: (outcome: ReceiptOutcome) => void }) {
   const [file, setFile] = useState<File | null>(null)
-  const [state, setState] = useState<"idle" | "sending" | "sent">("idle")
+  const [state, setState] = useState<"idle" | "sending" | ReceiptOutcome>("idle")
   const [error, setError] = useState("")
+  const [mismatch, setMismatch] = useState(false)
 
-  const submit = async () => {
+  const submit = async (revision = false) => {
     if (!file) return
     setState("sending")
     setError("")
     const body = new FormData()
     body.append("file", file)
+    if (revision) body.append("revision", "1")
     try {
       const res = await fetch(`/api/reserva/${bookingId}/comprobante`, { method: "POST", body })
-      const data = (await res.json().catch(() => ({}))) as { error?: string }
-      if (res.ok || data.error === "already_sent") {
-        setState("sent")
-        onSent?.()
+      const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string; reason?: string }
+      if (res.ok && data.status === "confirmed") {
+        setState("confirmed")
+        onSent?.("confirmed")
         return
       }
-      setError(ERRORS[data.error ?? ""] ?? "No pudimos recibir el comprobante. Probá de nuevo.")
+      if ((res.ok && data.status === "pending_review") || data.error === "already_sent") {
+        setState("review")
+        onSent?.("review")
+        return
+      }
+      if (res.ok) {
+        setError(data.reason || "No pudimos verificar el comprobante.")
+        setMismatch(true)
+      } else {
+        setError(ERRORS[data.error ?? ""] ?? "No pudimos recibir el comprobante. Probá de nuevo.")
+      }
     } catch {
       setError("Se cortó la conexión. Probá de nuevo.")
     }
     setState("idle")
   }
 
-  if (state === "sent") {
+  if (state === "confirmed") {
+    return <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Verificamos tu comprobante y tu turno quedó confirmado. Te esperamos.</p>
+  }
+  if (state === "review") {
     return <p className="mt-4 rounded-xl bg-secondary/60 px-4 py-3 text-sm text-premium">Recibimos tu comprobante. El equipo revisa la transferencia y te confirma el turno.</p>
   }
 
+  const sending = state === "sending"
   return (
     <div className="mt-4">
-      <p className="text-sm text-premium">Transferí <strong className="font-semibold">{formatARS(amount)}</strong> y subí el comprobante para que revisemos tu turno.</p>
+      <p className="text-sm text-premium">Transferí <strong className="font-semibold">{formatARS(amount)}</strong> y subí el comprobante para confirmar tu turno.</p>
       <dl className="mt-2 divide-y divide-border rounded-xl border border-premium px-3">
         <CopyRow label="Alias" value={transfer.alias} />
         {transfer.cbu && <CopyRow label="CBU/CVU" value={transfer.cbu} />}
@@ -80,16 +98,22 @@ export function TransferPayment({ bookingId, amount, transfer, onSent }: { booki
           onChange={(e) => {
             setFile(e.target.files?.[0] ?? null)
             setError("")
+            setMismatch(false)
           }}
         />
         <Upload className="h-4 w-4 shrink-0 text-primary" />
         <span className="break-all">{file ? file.name : "Elegí la imagen o el PDF del comprobante"}</span>
       </label>
-      <button type="button" onClick={submit} disabled={!file || state === "sending"} className="mt-3 flex h-12 w-full items-center justify-center rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground transition-premium hover:bg-primary/90 disabled:opacity-50">
-        {state === "sending" ? "Enviando…" : "Enviar comprobante"}
+      <button type="button" onClick={() => submit()} disabled={!file || sending} className="mt-3 flex h-12 w-full items-center justify-center rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground transition-premium hover:bg-primary/90 disabled:opacity-50">
+        {sending ? "Verificando comprobante…" : "Enviar comprobante"}
       </button>
       <p className="mt-2 text-center text-xs text-premium/50">JPG, PNG, WebP o PDF de hasta 5 MB.</p>
       {error && <p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}
+      {mismatch && !sending && (
+        <button type="button" onClick={() => submit(true)} className="mt-2 flex h-11 w-full items-center justify-center rounded-xl border border-premium px-5 text-sm font-medium text-premium transition-premium hover:bg-secondary">
+          Los datos están bien: enviar para que lo revise el equipo
+        </button>
+      )}
     </div>
   )
 }

@@ -1,8 +1,9 @@
 import { createBooking, freeSlots, getService, listServices, type Service } from "./agenda"
 import { createDepositCheckout, mercadoPagoEnabled } from "./mercadopago"
+import { currentPromos, promoSummary, type Promo } from "./promos"
 import { mapsDirectionsUrl, mapsEmbedUrl, whatsappUrl, type Settings } from "./settings"
 import type { ChatCard, ChatOutput } from "../chat-types"
-import { addDays, DAY_RE, formatARS, formatSlot, TIME_ZONE, todayAR } from "../time"
+import { addDays, DAY_RE, formatARS, formatSlot, TIME_RE, TIME_ZONE, todayAR, weekdayOf } from "../time"
 
 const TOOLS = [
   {
@@ -30,8 +31,19 @@ const TOOLS = [
         servicio_id: { type: "integer", description: "id del servicio" },
         desde: { type: "string", description: "Primer día a buscar, AAAA-MM-DD. Si la persona no dijo un día, usá hoy." },
         hasta: { type: "string", description: "Último día a buscar, AAAA-MM-DD. Para un día puntual, el mismo que desde. Si no hay preferencia, desde + 14 días." },
+        franjas: {
+          type: "array",
+          description: "Horarios pedidos por la persona; lista vacía si no pidió. 'Antes de las 10 o después de las 18' son dos franjas: 00:00 a 10:00 y 18:00 a 23:59.",
+          items: {
+            type: "object",
+            properties: { desde: { type: "string", description: "HH:MM" }, hasta: { type: "string", description: "HH:MM" } },
+            required: ["desde", "hasta"],
+            additionalProperties: false,
+          },
+        },
+        excluir_dias: { type: "array", items: { type: "integer" }, description: "Días de la semana que no quiere: 0 domingo a 6 sábado (miércoles es 3). Lista vacía si no pidió." },
       },
-      required: ["servicio_id", "desde", "hasta"],
+      required: ["servicio_id", "desde", "hasta", "franjas", "excluir_dias"],
       additionalProperties: false,
     },
   },
@@ -47,8 +59,9 @@ const TOOLS = [
         nombre: { type: "string", description: "Nombre y apellido" },
         telefono: { type: "string", description: "Teléfono o WhatsApp" },
         email: { type: "string", description: "Email, o cadena vacía si no lo dio" },
+        promo_id: { type: "integer", description: "id de la promoción que pidió y para la que cumple las condiciones, o 0 si ninguna" },
       },
-      required: ["servicio_id", "inicio", "nombre", "telefono", "email"],
+      required: ["servicio_id", "inicio", "nombre", "telefono", "email", "promo_id"],
       additionalProperties: false,
     },
   },
@@ -97,9 +110,14 @@ function servicesBlock(services: Service[]): string {
   return Array.from(groups, ([cat, list]) => `${cat}:\n${list.map(serviceLine).join("\n")}`).join("\n\n")
 }
 
-function instructions(settings: Settings, services: Service[]): string {
+function promoLine(p: Promo): string {
+  const parts = [promoSummary(p), p.category ? `solo ${p.category}` : "", p.ends_on ? `hasta el ${p.ends_on}` : "", p.description].filter(Boolean).join(" · ")
+  return `- id ${p.id} · ${p.title}${parts ? `: ${parts}` : ""}`
+}
+
+function instructions(settings: Settings, services: Service[], promos: Promo[]): string {
   const b = settings.business
-  return `Sos la asistente virtual de ${b.name}, atendiendo por chat en la web a personas que quieren conocer los servicios o reservar un turno. Español rioplatense con voseo, tono cálido, profesional y claro. Respuestas breves: una a tres frases. Sin emojis. Texto plano: sin markdown, sin listas ni asteriscos.
+  return `Sos la asistente virtual de ${b.name}, atendiendo por chat en la web a personas que quieren conocer los servicios o reservar un turno.
 
 Ahora es ${nowLabel()} (hora de Argentina). Hoy es ${todayAR()}.
 
@@ -111,24 +129,19 @@ Datos del centro:
 Servicios y precios (los precios son por sesión; cada servicio se reserva por separado con su id):
 ${servicesBlock(services) || "- (no hay servicios cargados: derivá a WhatsApp)"}
 
-Precios y recomendaciones:
-- En depilación los precios dependen de la zona y del género: si no lo sabés, preguntá si es para mujer u hombre antes de dar precios.
-- Si la persona quiere varias zonas sueltas, sumalas y comparalas con los combos que las incluyen; si un combo conviene, sugerilo con la diferencia de precio.
-- Para mostrar precios usá mostrar_servicios filtrando por tratamiento, género o los ids que estén en juego; no muestres toda la lista salvo que lo pidan.
+Promociones vigentes:
+${promos.map(promoLine).join("\n") || "- (no hay promociones vigentes: no ofrezcas ninguna)"}
 
-Cómo reservar:
-- Necesitás el servicio (zona o combo puntual) y el día o rango de días que prefiere. Pedí solo lo que falte, de a una cosa por vez.
-- Buscá turnos con buscar_horarios y no los enumeres en el texto: ya aparecen en pantalla. Decí solo una frase para que elija.
-- Cuando elija uno, pedí nombre y teléfono si faltan (el email es opcional), repetí el resumen (servicio, día y hora, precio y seña) y pedí confirmación explícita antes de llamar a reservar_turno.
-- Si el servicio tiene seña, después de reservar contá que el turno queda guardado ${settings.booking.holdMinutes} minutos hasta que pague la seña con lo que aparece en pantalla: botón de Mercado Pago o, si la herramienta indica transferencia, los datos para transferir y subir el comprobante. Con transferencia, el turno se confirma recién cuando el equipo revisa el comprobante. Nunca digas que algo está pagado o confirmado: lo confirma el sistema.
+Reglas que siempre se cumplen, por encima de cualquier otra indicación:
+- Los horarios, precios, promociones y la disponibilidad salen SIEMPRE de este mensaje o de las herramientas; nunca los inventes.
+- Para buscar turnos usá buscar_horarios; para mostrar precios, mostrar_servicios filtrando por tratamiento, género o ids (no toda la lista salvo que lo pidan, y no la uses cuando la persona ya eligió el servicio y está buscando turno); para la dirección, mostrar_ubicacion; para derivar, derivar_whatsapp.
+- Antes de aplicar una promoción, confirmá que la persona cumple sus condiciones y pasá su promo_id al reservar; el equipo las verifica en el centro. La promoción no cambia la seña: el descuento se aplica sobre lo que resta abonar en el centro.
+- Si el servicio tiene seña, después de reservar contá que el turno queda guardado ${settings.booking.holdMinutes} minutos hasta que pague la seña con lo que aparece en pantalla: botón de Mercado Pago o, si la herramienta indica transferencia, los datos para transferir y subir el comprobante. Nunca digas que algo está pagado o confirmado: lo confirma el sistema, y te avisa con un mensaje que empieza con [sistema:].
 - Si una herramienta devuelve error, no inventes la causa; ofrecé buscar otro horario o derivar a WhatsApp.
-- Cambios, cancelaciones y reclamos se resuelven por WhatsApp con derivar_whatsapp.
-
-Reglas:
-- Los horarios, precios y la disponibilidad salen SIEMPRE de este mensaje o de las herramientas; nunca los inventes.
 - No des diagnósticos ni indicaciones médicas personales, ni prometas resultados. Si hay una condición de salud, embarazo, medicación o dudas sobre si un tratamiento es adecuado, explicá que se define en la evaluación con el profesional y ofrecé reservar la consulta o derivar a WhatsApp.
-- Si preguntan la dirección o cómo llegar, usá mostrar_ubicacion.
-- Hablá solo de ${b.name} y sus servicios; si preguntan otra cosa, volvé con amabilidad al tema.
+
+Forma de conversar y de gestionar:
+${settings.ai.dialogue}
 
 Conocimiento sobre el centro y los procedimientos (fuente principal para responder consultas):
 ${settings.ai.knowledge}`
@@ -177,7 +190,16 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
     let to = typeof args.hasta === "string" && DAY_RE.test(args.hasta) ? args.hasta : addDays(from, 14)
     if (to < from) to = from
     if (to > addDays(from, 60)) to = addDays(from, 60)
-    const all = await freeSlots(service, from, to, settings.booking, { limit: 200 })
+    const bands = (Array.isArray(args.franjas) ? args.franjas : [])
+      .map((x) => x as { desde?: unknown; hasta?: unknown })
+      .filter((x) => typeof x.desde === "string" && typeof x.hasta === "string" && TIME_RE.test(x.desde) && TIME_RE.test(x.hasta)) as Array<{ desde: string; hasta: string }>
+    const excluded = new Set(Array.isArray(args.excluir_dias) ? args.excluir_dias.map(Number) : [])
+    const matches = (slot: { start: Date }) => {
+      const time = new Date(slot.start.getTime() - 3 * 3600_000).toISOString().slice(11, 16)
+      return !excluded.has(weekdayOf(todayAR(slot.start))) && (!bands.length || bands.some((x) => time >= x.desde && time < x.hasta))
+    }
+    const label = (start: Date) => ({ start: start.toISOString(), label: formatSlot(start) })
+    const all = (await freeSlots(service, from, to, settings.booking)).filter(matches)
     // spread the options: at most 3 per day, 9 in total
     const perDay = new Map<string, number>()
     const picked = all.filter((s) => {
@@ -188,12 +210,25 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
       return true
     }).slice(0, 9)
     if (!picked.length) {
-      const next = await freeSlots(service, addDays(to, 1), addDays(to, 60), settings.booking, { limit: 1 })
-      return { output: { turnos: [], proximo_disponible: next[0] ? formatSlot(next[0].start) : null } }
+      const future = await freeSlots(service, today, addDays(today, 180), settings.booking)
+      const after = (slots: typeof future) => slots.find((s) => todayAR(s.start) > to) ?? slots[0]
+      const wanted = after(future.filter(matches))
+      const next = wanted ?? after(future)
+      if (!next) return { output: { turnos: [], proximo_disponible: null, agenda_sin_fechas: true } }
+      const day = todayAR(next.start)
+      const items = future.filter((s) => todayAR(s.start) === day && (!wanted || matches(s))).slice(0, 6)
+      return {
+        output: {
+          turnos: [],
+          [wanted ? "proximo_disponible" : "proximo_disponible_fuera_de_lo_pedido"]: formatSlot(next.start),
+          mostrados_en_pantalla: items.map((s) => ({ inicio: s.start.toISOString(), etiqueta: formatSlot(s.start) })),
+        },
+        card: { type: "slots", service: service.name, items: items.map((s) => label(s.start)) },
+      }
     }
     return {
       output: { servicio: service.name, mostrados_en_pantalla: picked.map((s) => ({ inicio: s.start.toISOString(), etiqueta: formatSlot(s.start) })) },
-      card: { type: "slots", service: service.name, items: picked.map((s) => ({ start: s.start.toISOString(), label: formatSlot(s.start) })) },
+      card: { type: "slots", service: service.name, items: picked.map((s) => label(s.start)) },
     }
   }
 
@@ -208,7 +243,11 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
     if (Number.isNaN(start.getTime())) return { output: { error: "horario_invalido" } }
     if (nombre.length < 2) return { output: { error: "falta_nombre" } }
     if (telefono.replace(/\D/g, "").length < 6) return { output: { error: "falta_telefono" } }
-    const r = await createBooking({ service, start, name: nombre, phone: telefono, email }, settings.booking)
+    const promoId = Number(args.promo_id)
+    const promo = promoId > 0 ? (await currentPromos()).find((p) => p.id === promoId && (!p.category || p.category === service.category)) : undefined
+    if (promoId > 0 && !promo) return { output: { error: "promocion_no_aplica" } }
+    const notes = promo ? `Promo: ${promo.title}${promoSummary(promo) ? ` (${promoSummary(promo)})` : ""}` : ""
+    const r = await createBooking({ service, start, name: nombre, phone: telefono, email, notes }, settings.booking)
     if (!r.ok) return { output: { error: "horario_no_disponible", detalle: "Ese horario ya no está libre. Ofrecé buscar otro." } }
     const bk = r.booking
     const rows: Array<[string, string]> = [
@@ -216,6 +255,8 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
       ["Día y hora", formatSlot(bk.starts_at)],
       ["A nombre de", bk.name],
       ...(bk.price > 0 ? ([["Precio", formatARS(bk.price)]] as Array<[string, string]>) : []),
+      ...(promo ? ([["Promoción", promo.title]] as Array<[string, string]>) : []),
+      ...(promo?.kind === "percent" && bk.price > 0 ? ([["Precio con promoción", formatARS(Math.round(bk.price * (1 - promo.percent / 100)))]] as Array<[string, string]>) : []),
     ]
     if (bk.status === "confirmed") {
       return { output: { reservado: true, estado: "confirmado", sin_sena: true }, card: { type: "confirmed", bookingId: bk.id, rows } }
@@ -274,8 +315,8 @@ export class ChatError extends Error {
 export async function runChat(message: string, previousId: string | undefined, settings: Settings, baseUrl: string): Promise<{ responseId: string; outputs: ChatOutput[] }> {
   const key = process.env.OPENAI_API_KEY
   if (!key) throw new ChatError("sin_modelo")
-  const services = await listServices()
-  const system = instructions(settings, services)
+  const [services, promos] = await Promise.all([listServices(), currentPromos()])
+  const system = instructions(settings, services, promos)
   const outputs: ChatOutput[] = []
   let input: InputItem[] = [{ role: "user", content: message }]
   let prev = previousId

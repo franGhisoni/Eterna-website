@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Bot, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, ExternalLink, LogOut, Plus, Save, Settings2, Sparkles, Trash2, Users } from "lucide-react"
+import { BadgePercent, Bot, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, ExternalLink, Landmark, LogOut, Plus, Save, Settings2, Sparkles, Trash2, Users } from "lucide-react"
 import type { Settings, ReasoningEffort } from "@/lib/server/settings"
+import { DEFAULT_DIALOGUE } from "@/lib/chat-defaults"
 import { addDays, formatARS, formatDay, TIME_ZONE, todayAR, weekdayOf } from "@/lib/time"
 
 type Status = { openai: boolean; mercadoPago: "off" | "test" | "produccion"; webhookSecret: boolean }
@@ -31,6 +32,7 @@ type Booking = {
   deposit: number
   price: number
   mp_payment_id: string | null
+  notes: string
   has_receipt: boolean
   state: "pending_payment" | "pending_review" | "confirmed" | "cancelled" | "conflict" | "expired"
 }
@@ -70,7 +72,9 @@ const TABS = [
   { id: "turnos", label: "Turnos", icon: ClipboardList },
   { id: "agenda", label: "Agenda", icon: CalendarDays },
   { id: "pacientes", label: "Pacientes", icon: Users },
+  { id: "transferencias", label: "Transferencias", icon: Landmark },
   { id: "servicios", label: "Servicios", icon: Sparkles },
+  { id: "promos", label: "Promociones", icon: BadgePercent },
   { id: "asistente", label: "Asistente IA", icon: Bot },
   { id: "config", label: "Configuración", icon: Settings2 },
 ] as const
@@ -144,7 +148,9 @@ export function AdminApp() {
         {tab === "turnos" && <BookingsTab flash={setFlash} />}
         {tab === "agenda" && <AgendaTab flash={setFlash} />}
         {tab === "pacientes" && <PatientsTab flash={setFlash} />}
+        {tab === "transferencias" && <TransfersTab flash={setFlash} />}
         {tab === "servicios" && <ServicesTab flash={setFlash} />}
+        {tab === "promos" && <PromosTab flash={setFlash} />}
         {tab === "asistente" && settings && <AiTab settings={settings} status={status} save={saveSettings} />}
         {tab === "config" && settings && <ConfigTab settings={settings} status={status} save={saveSettings} />}
       </main>
@@ -232,6 +238,7 @@ function BookingsTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
                     <p className="text-sm text-premium/60">
                       <a className="hover:text-primary" href={`https://wa.me/${b.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">{b.phone}</a>
                       {b.email && <> · {b.email}</>}
+                      {b.notes && <> · {b.notes}</>}
                       {b.deposit > 0 && <> · Seña {formatARS(b.deposit)}{b.mp_payment_id ? ` (MP ${b.mp_payment_id})` : ""}</>}
                     </p>
                   </div>
@@ -700,6 +707,245 @@ function PatientsTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
   )
 }
 
+/* ───────────── Transferencias ───────────── */
+
+type Transfer = {
+  id: string
+  service_name: string
+  starts_at: string
+  name: string
+  phone: string
+  deposit: number
+  state: Booking["state"]
+  file_name: string
+  mime: string
+  uploaded_at: string
+  ai_result: "coincide" | "no_coincide" | "ilegible" | "sin_lectura"
+  ai_reason: string
+  ai_reading: { monto?: unknown; fecha?: unknown; estado?: unknown; destinatario?: { titular?: unknown; alias?: unknown; cbu?: unknown }; banco_destino?: unknown } | null
+  verified_at: string | null
+}
+
+const AI_LABEL: Record<Transfer["ai_result"], { label: string; cls: string }> = {
+  coincide: { label: "IA: coincide", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  no_coincide: { label: "IA: no coincide", cls: "bg-red-50 text-red-700 border-red-200" },
+  ilegible: { label: "IA: no se pudo leer", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  sin_lectura: { label: "Sin lectura de IA", cls: "bg-stone-100 text-stone-500 border-stone-200" },
+}
+
+const needsReview = (t: Transfer) => !t.verified_at && (t.state === "pending_review" || t.state === "confirmed")
+
+function TransferCard({ t, onDone, flash }: { t: Transfer; onDone: () => void; flash: (m: string, e?: boolean) => void }) {
+  const [checked, setChecked] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const url = `/api/admin/bookings/${t.id}/comprobante`
+  const act = async (action: "verify" | "reject") => {
+    if (action === "reject" && !confirm(`¿Rechazar el comprobante de ${t.name}? El turno se cancela y el horario queda libre.`)) return
+    setBusy(true)
+    try {
+      await api("/api/admin/transfers", { method: "PATCH", body: JSON.stringify({ id: t.id, action }) })
+      flash(action === "verify" ? "Transferencia verificada" : "Comprobante rechazado")
+      onDone()
+    } catch {
+      flash("No se pudo actualizar", true)
+    }
+    setBusy(false)
+  }
+  const r = t.ai_reading
+  const shown = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v) : "—")
+  const rows: Array<[string, string]> = [
+    ["Importe leído", typeof r?.monto === "number" ? formatARS(r.monto) : "—"],
+    ["Fecha", shown(r?.fecha)],
+    ["Estado", shown(r?.estado)],
+    ["Titular destino", shown(r?.destinatario?.titular)],
+    ["Alias destino", shown(r?.destinatario?.alias)],
+    ["CBU/CVU destino", shown(r?.destinatario?.cbu)],
+  ]
+  return (
+    <div className={`${panel} grid gap-5 md:grid-cols-[280px_1fr]`}>
+      <a href={url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-premium bg-premium-light" aria-label={`Abrir comprobante de ${t.name}`}>
+        {t.mime === "application/pdf" ? (
+          <div className="flex h-64 items-center justify-center text-sm text-primary">Abrir PDF</div>
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={url} alt={`Comprobante de ${t.name}`} loading="lazy" className="max-h-96 w-full object-contain" />
+        )}
+      </a>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-medium text-premium">{t.name}</p>
+          <span className={`rounded-full border px-2.5 py-0.5 text-xs ${AI_LABEL[t.ai_result].cls}`}>{AI_LABEL[t.ai_result].label}</span>
+          <span className={`rounded-full border px-2.5 py-0.5 text-xs ${STATE_LABEL[t.state].cls}`}>{STATE_LABEL[t.state].label}</span>
+          {t.verified_at && <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs text-emerald-700">Verificada en el banco</span>}
+        </div>
+        <p className="mt-1 text-sm text-premium/65">{t.service_name} · {shortDate(t.starts_at)} · {t.phone}</p>
+        <p className="mt-1 text-sm text-premium">Seña esperada: <strong className="font-semibold">{formatARS(t.deposit)}</strong></p>
+        {t.ai_reason && <p className="mt-2 text-sm text-destructive">{t.ai_reason}</p>}
+        <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+          {rows.map(([k, v]) => (
+            <div key={k} className="flex justify-between gap-3 border-b border-border py-1">
+              <dt className="text-premium/55">{k}</dt>
+              <dd className="break-all text-right text-premium">{v}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-2 text-xs text-premium/50">Enviado {shortDate(t.uploaded_at)}. La lectura de la IA no prueba el ingreso: un comprobante puede estar falsificado.</p>
+        {needsReview(t) && (
+          <div className="mt-3 space-y-3">
+            <label className="flex items-center gap-2 text-sm text-premium">
+              <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} className="accent-[#882626]" />
+              Verifiqué en el banco que el dinero ingresó a la cuenta.
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => act("verify")} disabled={!checked || busy} className={btnPrimary}>Confirmar transferencia</button>
+              <button onClick={() => act("reject")} disabled={busy} className={`${btnGhost} text-destructive`}>Rechazar y liberar turno</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TransfersTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
+  const [transfers, setTransfers] = useState<Transfer[] | null>(null)
+  const [filter, setFilter] = useState("pendientes")
+
+  const load = useCallback(() => {
+    api<{ transfers: Transfer[] }>("/api/admin/transfers").then((d) => setTransfers(d.transfers)).catch(() => flash("No se pudieron cargar las transferencias", true))
+  }, [flash])
+  useEffect(load, [load])
+
+  const list = transfers ?? []
+  const pending = list.filter(needsReview)
+  const visible =
+    filter === "pendientes" ? pending
+    : filter === "verificadas" ? list.filter((t) => t.verified_at)
+    : filter === "fallidas" ? list.filter((t) => t.state === "pending_payment" || t.state === "expired" || t.state === "cancelled")
+    : list
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-serif text-2xl font-bold text-premium">Transferencias</h1>
+          <p className="max-w-3xl text-sm text-premium/60">La IA lee cada comprobante y, si importe, cuenta y fecha coinciden, confirma el turno. Mirá la imagen y verificá el ingreso en el banco.</p>
+          <p className="mt-1 text-sm font-medium text-premium">{pending.length} por verificar · {formatARS(pending.reduce((n, t) => n + t.deposit, 0))}</p>
+        </div>
+        <select value={filter} onChange={(e) => setFilter(e.target.value)} className={`${fieldInline} w-48`} aria-label="Filtrar transferencias">
+          <option value="pendientes">Por verificar</option>
+          <option value="verificadas">Verificadas</option>
+          <option value="fallidas">No aprobadas o vencidas</option>
+          <option value="todas">Todas</option>
+        </select>
+      </div>
+      {transfers === null ? (
+        <p className="text-sm text-premium/60">Cargando…</p>
+      ) : visible.length === 0 ? (
+        <div className={panel}><p className="text-sm text-premium/60">No hay transferencias para este filtro.</p></div>
+      ) : (
+        visible.map((t) => <TransferCard key={t.id} t={t} onDone={load} flash={flash} />)
+      )}
+    </section>
+  )
+}
+
+/* ───────────── Promociones ───────────── */
+
+type Promo = {
+  id: number
+  title: string
+  description: string
+  kind: "percent" | "2x1" | "other"
+  percent: number
+  sessions: number
+  category: string
+  starts_on: string | null
+  ends_on: string | null
+  active: boolean
+}
+
+function PromosTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
+  const [promos, setPromos] = useState<Promo[] | null>(null)
+
+  const load = useCallback(() => {
+    api<{ promos: Promo[] }>("/api/admin/promos").then((d) => setPromos(d.promos)).catch(() => flash("No se pudieron cargar las promociones", true))
+  }, [flash])
+  useEffect(load, [load])
+
+  const update = (id: number, patch: Partial<Promo>) => setPromos((v) => v?.map((p) => (p.id === id ? { ...p, ...patch } : p)) ?? v)
+  const add = () => setPromos((v) => [{ id: -Date.now(), title: "", description: "", kind: "percent", percent: 20, sessions: 0, category: "", starts_on: null, ends_on: null, active: true }, ...(v ?? [])])
+
+  const save = async (p: Promo) => {
+    try {
+      await api("/api/admin/promos", { method: p.id > 0 ? "PUT" : "POST", body: JSON.stringify(p) })
+      flash("Promoción guardada")
+      load()
+    } catch {
+      flash("Revisá el título, el porcentaje y las fechas", true)
+    }
+  }
+
+  const remove = async (p: Promo) => {
+    if (p.id < 0) return setPromos((v) => v?.filter((x) => x.id !== p.id) ?? v)
+    if (!confirm(`¿Eliminar "${p.title}"?`)) return
+    await api(`/api/admin/promos?id=${p.id}`, { method: "DELETE" }).catch(() => flash("No se pudo eliminar", true))
+    load()
+  }
+
+  const lbl = "text-xs text-premium/60"
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-serif text-2xl font-bold text-premium">Promociones</h1>
+          <p className="max-w-3xl text-sm text-premium/60">El chat ofrece las activas y vigentes, y deja la promo anotada en el turno. La seña no cambia: el descuento se aplica sobre lo que resta abonar, y las condiciones las verifica el equipo en el centro.</p>
+        </div>
+        <button onClick={add} className={btnPrimary}><Plus className="h-4 w-4" /> Nueva promoción</button>
+      </div>
+      {promos?.length === 0 && <div className={panel}><p className="text-sm text-premium/60">No hay promociones cargadas.</p></div>}
+      {promos?.map((p) => (
+        <div key={p.id} className={panel}>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label className={`${lbl} sm:col-span-2`}>Título<input value={p.title} onChange={(e) => update(p.id, { title: e.target.value })} placeholder="Bienvenida" className={`${field} mt-1`} /></label>
+            <label className={lbl}>Tipo
+              <select value={p.kind} onChange={(e) => update(p.id, { kind: e.target.value as Promo["kind"] })} className={`${field} mt-1`}>
+                <option value="percent">Porcentaje de descuento</option>
+                <option value="2x1">2x1</option>
+                <option value="other">Otra (la explica el texto)</option>
+              </select>
+            </label>
+            {p.kind === "percent" ? (
+              <label className={lbl}>Descuento (%)<input type="number" min={1} max={100} value={p.percent} onChange={(e) => update(p.id, { percent: Number(e.target.value) })} className={`${field} mt-1`} /></label>
+            ) : <div className="hidden lg:block" />}
+            <label className={lbl}>Primeras N sesiones (0 = todas)<input type="number" min={0} value={p.sessions} onChange={(e) => update(p.id, { sessions: Number(e.target.value) })} className={`${field} mt-1`} /></label>
+            <label className={lbl}>Aplica a
+              <input list="promo-categories" value={p.category} onChange={(e) => update(p.id, { category: e.target.value })} placeholder="Todos los servicios" className={`${field} mt-1`} />
+            </label>
+            <label className={lbl}>Desde (opcional)<input type="date" value={p.starts_on ?? ""} onChange={(e) => update(p.id, { starts_on: e.target.value || null })} className={`${field} mt-1`} /></label>
+            <label className={lbl}>Hasta (opcional)<input type="date" value={p.ends_on ?? ""} onChange={(e) => update(p.id, { ends_on: e.target.value || null })} className={`${field} mt-1`} /></label>
+            <label className={`${lbl} sm:col-span-2 lg:col-span-4`}>Condiciones (el asistente las explica y las confirma antes de aplicarla)
+              <textarea rows={2} value={p.description} onChange={(e) => update(p.id, { description: e.target.value })} placeholder="Ej.: válida si venís con otra persona que también se atiende el mismo día." className={`${field} mt-1 h-auto py-2`} />
+            </label>
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <label className="flex items-center gap-2 text-sm text-premium/70">
+              <input type="checkbox" checked={p.active} onChange={(e) => update(p.id, { active: e.target.checked })} className="accent-[#882626]" /> Activa
+            </label>
+            <button onClick={() => remove(p)} className={`${btnIcon} ml-auto text-destructive`} aria-label="Eliminar promoción"><Trash2 className="h-4 w-4" /></button>
+            <button onClick={() => save(p)} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
+          </div>
+        </div>
+      ))}
+      <datalist id="promo-categories">
+        <option value="Depilación Definitiva" />
+        <option value="HIFU" />
+        <option value="Medicina Estética" />
+      </datalist>
+    </section>
+  )
+}
+
 /* ───────────── Asistente IA ───────────── */
 
 const MODELS = ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"]
@@ -736,6 +982,18 @@ function AiTab({ settings, status, save }: { settings: Settings; status: Status 
           </select>
           <span className="mt-1 block text-xs font-normal text-premium/55">Más razonamiento mejora respuestas complejas pero tarda más.</span>
         </label>
+      </div>
+      <div className={panel}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <label htmlFor="dialogue" className="text-sm font-medium text-premium">Forma de conversar y de gestionar
+            <span className="mt-1 block max-w-3xl text-xs font-normal text-premium/55">
+              Cómo habla el asistente y qué responde en cada situación: tono, pasos para reservar, qué decir cuando no hay turnos. Las reglas de seguridad (no inventar precios ni horarios, no dar un turno por pagado, no dar indicaciones médicas) quedan fijas y no se pueden anular desde acá.
+            </span>
+          </label>
+          <button type="button" onClick={() => setAi({ ...ai, dialogue: DEFAULT_DIALOGUE })} disabled={ai.dialogue === DEFAULT_DIALOGUE} className={`${btnGhost} h-8 text-xs`}>Restaurar texto inicial</button>
+        </div>
+        <textarea id="dialogue" value={ai.dialogue} onChange={(e) => setAi({ ...ai, dialogue: e.target.value })} rows={18} className={`${field} mt-2 h-auto py-3 font-normal leading-relaxed`} />
+        <p className="mt-2 text-right text-xs text-premium/50">{ai.dialogue.length.toLocaleString("es-AR")} / 15.000 caracteres</p>
       </div>
       <div className={panel}>
         <label className="text-sm font-medium text-premium">Conocimiento sobre la empresa y los procedimientos

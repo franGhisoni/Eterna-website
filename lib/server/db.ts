@@ -54,6 +54,25 @@ create table if not exists booking_receipts (
   data bytea not null,
   created_at timestamptz not null default now()
 );
+alter table booking_receipts add column if not exists sha256 text;
+alter table booking_receipts add column if not exists ai_result text;
+alter table booking_receipts add column if not exists ai_reason text;
+alter table booking_receipts add column if not exists ai_reading jsonb;
+alter table booking_receipts add column if not exists verified_at timestamptz;
+create index if not exists booking_receipts_sha256 on booking_receipts(sha256);
+create table if not exists promos (
+  id serial primary key,
+  title text not null,
+  description text not null default '',
+  kind text not null default 'percent',
+  percent int not null default 0,
+  sessions int not null default 0,
+  category text not null default '',
+  starts_on date,
+  ends_on date,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
 create table if not exists patients (
   id serial primary key,
   name text not null,

@@ -1,8 +1,9 @@
 import { db } from "./db"
+import { DEFAULT_DIALOGUE } from "../chat-defaults"
 
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high"
 
-export type AiSettings = { model: string; reasoning: ReasoningEffort; knowledge: string }
+export type AiSettings = { model: string; reasoning: ReasoningEffort; knowledge: string; dialogue: string }
 export type BusinessSettings = { name: string; address: string; whatsapp: string; hours: string }
 export type BookingSettings = { slotMinutes: number; minHoursAhead: number; holdMinutes: number; capacity: number }
 
@@ -22,7 +23,7 @@ Servicios:
 Antes de la sesión de depilación láser: venir con la zona rasurada, sin cremas ni autobronceantes, y evitar el sol intenso los días previos. (Completar o corregir según los protocolos del centro.)`
 
 export const DEFAULT_SETTINGS: Settings = {
-  ai: { model: "gpt-6-luna", reasoning: "low", knowledge: DEFAULT_KNOWLEDGE },
+  ai: { model: "gpt-6-luna", reasoning: "low", knowledge: DEFAULT_KNOWLEDGE, dialogue: DEFAULT_DIALOGUE },
   business: {
     name: "Eterna",
     address: "José Pereyra Lucena 575, Lomas de Zamora, Buenos Aires",
@@ -60,6 +61,7 @@ export function sanitizeSettings(input: Partial<Record<keyof Settings, Record<st
       model: /^[\w.:-]+$/.test(model) ? model : current.ai.model,
       reasoning,
       knowledge: str(ai.knowledge, 30000, current.ai.knowledge),
+      dialogue: str(ai.dialogue, 15000, current.ai.dialogue),
     },
     business: {
       name: str(business.name, 80, current.business.name) || current.business.name,
