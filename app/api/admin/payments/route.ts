@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 import {badRequest, can, deny } from "@/lib/server/http"
-import { addPayment, deletePayment, listPayments } from "@/lib/server/ledger"
+import { addPayment, deletePayment, listPayments, updatePayment } from "@/lib/server/ledger"
 import { getSettings } from "@/lib/server/settings"
 import { DAY_RE } from "@/lib/time"
 
@@ -58,6 +58,35 @@ export async function POST(req: NextRequest) {
   },
     session.username,
   )
+  return p ? NextResponse.json({ payment: p }) : badRequest("no_encontrado")
+}
+
+export async function PUT(req: NextRequest) {
+  const session = await can("payments")
+  if (!session) return deny()
+  const b = (await req.json().catch(() => ({}))) as Record<string, unknown>
+  const id = Number(b.id)
+  if (!Number.isInteger(id)) return badRequest()
+  const { payments } = await getSettings()
+  const patch: Parameters<typeof updatePayment>[1] = {}
+  if (b.amount !== undefined) {
+    const n = Math.round(Number(b.amount))
+    if (!Number.isFinite(n) || n <= 0 || n > 100_000_000) return badRequest()
+    patch.amount = n
+  }
+  if (b.method !== undefined) {
+    const m = text(b.method, 60)
+    if (!payments.methods.includes(m) && m !== "Mercado Pago" && m !== "Transferencia") return badRequest()
+    patch.method = m
+  }
+  if (b.concept !== undefined) patch.concept = text(b.concept, 60) || "Pago"
+  if (b.notes !== undefined) patch.notes = text(b.notes, 500)
+  if (typeof b.paidAt === "string" && b.paidAt) {
+    const d = new Date(b.paidAt)
+    if (Number.isNaN(d.getTime())) return badRequest()
+    patch.paidAt = d
+  }
+  const p = await updatePayment(id, patch, session.username)
   return p ? NextResponse.json({ payment: p }) : badRequest("no_encontrado")
 }
 

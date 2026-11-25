@@ -406,6 +406,15 @@ select q, a, c, a <> '', o from (values
 where not exists (select 1 from faqs);
 `,
   ],
+  [
+    "2026-11-vincular-promos-anotadas",
+    `
+-- turnos que tenían la promo solo escrita: se vinculan con la promo de igual nombre para poder editarlos bien
+update bookings b set promo_id = p.id
+from promos p
+where b.promo_id is null and b.promo_title <> '' and lower(trim(p.title)) = lower(trim(b.promo_title));
+`,
+  ],
 ]
 
 async function runDataMigrations(pool: Pool) {

@@ -402,6 +402,26 @@ export async function deletePayment(id: number, actor = "admin"): Promise<boolea
   })
 }
 
+/** Corrige un pago cargado a mano (importe, medio, concepto, fecha o notas). Queda en la auditoría con el valor anterior. */
+export async function updatePayment(
+  id: number,
+  patch: Partial<{ amount: number; method: string; concept: string; notes: string; paidAt: Date }>,
+  actor = "admin",
+): Promise<Payment | null> {
+  return transaction(async (c) => {
+    const { rows: before } = await c.query<Payment>("select * from payments where id = $1 for update", [id])
+    if (!before[0]) return null
+    const b = before[0]
+    const { rows } = await c.query<Payment>(
+      "update payments set amount = $2, method = $3, concept = $4, notes = $5, paid_at = $6 where id = $1 returning *",
+      [id, patch.amount ?? b.amount, patch.method ?? b.method, patch.concept ?? b.concept, patch.notes ?? b.notes, patch.paidAt ?? b.paid_at],
+    )
+    if (b.booking_id) await event(c, b.booking_id, "pago_corregido", { antes: b.amount, despues: rows[0].amount, medio: rows[0].method }, actor)
+    await audit(c, "pago", id, "corregir", b, rows[0], actor)
+    return rows[0]
+  })
+}
+
 /** Registra un cobro que llegó por un canal automático (Mercado Pago o comprobante). Idempotente. */
 export async function recordAutomaticPayment(q: Queryable, bookingId: string, amount: number, method: string, origin: "mercadopago" | "comprobante", ref: string) {
   const patientId = await linkBookingPatient(q, bookingId)

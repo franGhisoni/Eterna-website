@@ -141,10 +141,10 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, compact 
         <p className="mt-1 text-xs text-premium/55">a {hhmm(b.ends_at)} · {minutes} min</p>
         {compact && <p className="mt-1 text-xs text-premium/55">{shortDate(b.starts_at)}</p>}
       </div>
-      <div className="min-w-0 flex-1 space-y-1">
+      <div className="min-w-0 flex-1 cursor-pointer space-y-1 rounded-lg transition-premium hover:bg-secondary/30" onClick={() => onEdit(b)} title="Tocá para editar el turno">
         <p className="font-medium text-premium">
           {b.patient_id && onPatient ? (
-            <button onClick={() => onPatient(b.patient_id!)} className="hover:text-primary hover:underline">{b.name}</button>
+            <button onClick={(e) => { e.stopPropagation(); onPatient(b.patient_id!) }} className="hover:text-primary hover:underline">{b.name}</button>
           ) : (
             b.name
           )}
@@ -175,14 +175,14 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, compact 
           {b.rescheduled > 0 && <span className={`${chip} border-violet-200 bg-violet-50 text-violet-700`}>Reprogramado</span>}
           <span className="text-xs text-premium/50">Origen: {SOURCE[b.source] ?? b.source}</span>
           {b.phone && (
-            <a className="text-xs text-premium/50 hover:text-primary" href={`https://wa.me/${b.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">· {b.phone}</a>
+            <a onClick={(e) => e.stopPropagation()} className="text-xs text-premium/50 hover:text-primary" href={`https://wa.me/${b.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">· {b.phone}</a>
           )}
         </div>
         {b.notes && <p className="text-xs text-premium/60">Obs.: {b.notes}</p>}
       </div>
       <div className="flex shrink-0 flex-wrap gap-1.5 lg:max-w-[260px] lg:justify-end">
         {b.state !== "cancelled" && b.balance > 0 && <button onClick={() => onPay(b)} className={btnSmall}><Wallet className="h-3.5 w-3.5" /> Registrar pago</button>}
-        <button onClick={() => onEdit(b)} className={btnSmall}>Editar / reprogramar</button>
+        <button onClick={() => onEdit(b)} className={`${btnSmall} border-primary/30 text-primary`}>Editar</button>
         {b.has_receipt && <a href={`/api/admin/bookings/${b.id}/comprobante`} target="_blank" rel="noreferrer" className={btnSmall}>Comprobante</a>}
         {(b.state === "reserved" || b.state === "pending_review" || b.state === "conflict" || b.state === "expired") && (
           <button onClick={() => onStatus(b, "confirmed")} className={btnSmall}>Confirmar</button>
@@ -379,7 +379,11 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
   const service = catalog?.services.find((s) => s.id === f.serviceId)
   const promos = (catalog?.promos ?? []).filter((p) => (promoActiveOn(p, day || todayAR()) || p.id === booking?.promo_id) && (!p.category || !service || p.category === service.category))
   const promo = promos.find((p) => p.id === f.promoId)
-  const computedFinal = promo?.kind === "percent" ? f.price - Math.round((f.price * promo.percent) / 100) : f.price
+  // si se corrige el precio de un turno sin cambiar su promo, se mantiene el descuento que se había acordado (no el actual de la promo)
+  const keepsDeal = !!booking && f.promoId === (booking.promo_id ?? 0) && booking.price > 0
+  const computedFinal = keepsDeal
+    ? Math.round((f.price * booking!.final_price) / booking!.price)
+    : promo?.kind === "percent" ? f.price - Math.round((f.price * promo.percent) / 100) : f.price
 
   const pickService = (id: number) => {
     const s = catalog?.services.find((x) => x.id === id)
@@ -487,11 +491,14 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
             <label className={lbl}>Precio final<input type="number" min={0} value={f.finalPrice === "" ? computedFinal : f.finalPrice} onChange={(e) => set({ finalPrice: e.target.value })} className={`${field} mt-1`} /></label>
             <label className={lbl}>Seña requerida<input type="number" min={0} value={f.deposit} onChange={(e) => set({ deposit: Number(e.target.value) })} className={`${field} mt-1`} /></label>
           </div>
+          {editing && booking!.promo_title && !booking!.promo_id && (
+            <p className="mt-2 text-xs text-amber-700">Este turno tiene anotada la promo «{booking!.promo_title}». Si cambiás el precio o elegís otra promo, revisá el precio final.</p>
+          )}
           <p className="mt-2 text-xs text-premium/55">
             El precio queda congelado en este turno: si después cambiás la lista de precios o la promoción, este turno conserva lo acordado.
             {catalog && catalog.depositPercent > 0 && ` Política de seña: ${catalog.depositPercent}%.`}
           </p>
-          {editing && <p className="mt-1 text-xs text-premium/55">Pagado hasta ahora: {formatARS(booking!.paid)}. Los pagos se registran con «Registrar pago».</p>}
+          {editing && <BookingPayments bookingId={booking!.id} flash={flash} />}
         </div>
 
         <label className={`${lbl} block`}>Observaciones<textarea rows={3} value={f.notes} onChange={(e) => set({ notes: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
@@ -503,6 +510,73 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
         {editing && <BookingHistory id={booking!.id} />}
       </div>
     </Drawer>
+  )
+}
+
+/** Pagos de un turno, con corrección de importe, medio, concepto o fecha (los automáticos no se tocan). */
+function BookingPayments({ bookingId, flash }: { bookingId: string; flash: Flash }) {
+  const catalog = useCatalog(flash)
+  const [list, setList] = useState<Payment[] | null>(null)
+  const [edit, setEdit] = useState<{ id: number; amount: number | string; method: string; concept: string; paidAt: string } | null>(null)
+  const load = useCallback(() => {
+    api<{ payments: Payment[] }>("/api/admin/payments")
+      .then((d) => setList(d.payments.filter((p) => p.booking_id === bookingId)))
+      .catch(() => setList([]))
+  }, [bookingId])
+  useEffect(load, [load])
+  const save = async () => {
+    if (!edit) return
+    try {
+      await api("/api/admin/payments", { method: "PUT", body: JSON.stringify({ id: edit.id, amount: Number(edit.amount), method: edit.method, concept: edit.concept, paidAt: fromLocalInput(edit.paidAt) }) })
+      flash("Pago corregido")
+      setEdit(null)
+      load()
+    } catch {
+      flash("Revisá el importe", true)
+    }
+  }
+  const annul = async (p: Payment) => {
+    if (!confirm(`¿Anular el pago de ${formatARS(p.amount)}? Queda registrado en la auditoría.`)) return
+    await api(`/api/admin/payments?id=${p.id}`, { method: "DELETE" }).catch(() => flash("No se pudo anular", true))
+    load()
+  }
+  if (list === null) return null
+  return (
+    <div className="mt-2 border-t border-border pt-2">
+      <p className="text-xs font-medium text-premium">Pagos de este turno {list.length === 0 && <span className="font-normal text-premium/55">(todavía ninguno; se cargan con «Registrar pago»)</span>}</p>
+      <ul className="mt-1 space-y-1">
+        {list.map((p) =>
+          edit?.id === p.id ? (
+            <li key={p.id} className="grid grid-cols-2 gap-1.5 rounded-lg border border-premium bg-white p-2">
+              <input type="number" min={1} value={edit.amount} onChange={(e) => setEdit({ ...edit, amount: e.target.value })} className={`${field} h-8`} aria-label="Importe" />
+              <select value={edit.method} onChange={(e) => setEdit({ ...edit, method: e.target.value })} className={`${field} h-8`} aria-label="Medio">
+                {Array.from(new Set([...(catalog?.methods ?? []), edit.method])).map((m) => <option key={m}>{m}</option>)}
+              </select>
+              <select value={edit.concept} onChange={(e) => setEdit({ ...edit, concept: e.target.value })} className={`${field} h-8`} aria-label="Concepto">
+                {Array.from(new Set(["Seña", "Pago parcial", "Pago total", "Saldo", "Otro", edit.concept])).map((c) => <option key={c}>{c}</option>)}
+              </select>
+              <input type="datetime-local" value={edit.paidAt} onChange={(e) => setEdit({ ...edit, paidAt: e.target.value })} className={`${field} h-8`} aria-label="Fecha" />
+              <div className="col-span-2 flex gap-2">
+                <button onClick={save} className={`${btnPrimary} h-8`}>Guardar pago</button>
+                <button onClick={() => setEdit(null)} className={`${btnGhost} h-8`}>Cancelar</button>
+              </div>
+            </li>
+          ) : (
+            <li key={p.id} className="flex items-center gap-2 text-xs text-premium/75">
+              <span className="flex-1">{shortDate(p.paid_at)} · {p.concept} · {p.method} · <strong className="text-premium">{formatARS(p.amount)}</strong></span>
+              {p.origin === "manual" ? (
+                <>
+                  <button onClick={() => setEdit({ id: p.id, amount: p.amount, method: p.method, concept: p.concept, paidAt: toLocalInput(p.paid_at) })} className="text-primary hover:underline">Corregir</button>
+                  <button onClick={() => annul(p)} className="text-destructive hover:underline">Anular</button>
+                </>
+              ) : (
+                <span className="text-premium/40">automático</span>
+              )}
+            </li>
+          ),
+        )}
+      </ul>
+    </div>
   )
 }
 
@@ -518,6 +592,7 @@ function BookingHistory({ id }: { id: string }) {
     if (h.kind === "estado") return `Estado: ${STATUS[d.antes as string]?.label ?? d.antes} → ${STATUS[d.despues as string]?.label ?? d.despues}`
     if (h.kind === "pago") return `Pago ${formatARS(Number(d.importe))} · ${d.medio} · ${d.concepto}`
     if (h.kind === "pago_anulado") return `Pago anulado ${formatARS(Number(d.importe))}`
+    if (h.kind === "pago_corregido") return `Pago corregido: ${formatARS(Number(d.antes))} → ${formatARS(Number(d.despues))}`
     if (h.kind === "creado") return `Creado desde ${SOURCE[d.origen as string] ?? d.origen}`
     return h.kind
   }
@@ -1091,6 +1166,19 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
                     <p className="text-xs text-premium/50">Registró: {x.created_by}{x.notes ? ` · ${x.notes}` : ""}</p>
                   </div>
                   <p className="font-medium text-premium">{formatARS(x.amount)}</p>
+                  {x.origin === "manual" && (
+                    <button
+                      onClick={async () => {
+                        const v = prompt(`Importe correcto para el pago del ${shortDate(x.paid_at)}:`, String(x.amount))
+                        if (!v || Number(v) === x.amount) return
+                        await api("/api/admin/payments", { method: "PUT", body: JSON.stringify({ id: x.id, amount: Number(v) }) }).then(() => flash("Pago corregido")).catch(() => flash("Importe inválido", true))
+                        load()
+                      }}
+                      className={btnSmall}
+                    >
+                      Corregir
+                    </button>
+                  )}
                   {x.origin === "manual" && <button onClick={() => removePayment(x)} className={`${btnIcon} h-8 w-8 text-destructive`} aria-label="Anular pago"><Trash2 className="h-3.5 w-3.5" /></button>}
                 </li>
               ))}
