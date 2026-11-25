@@ -7,7 +7,7 @@ export type ChatCard =
   | { type: "slots"; service: string; items: Array<{ start: string; label: string }> }
   | { type: "payment"; bookingId: string; rows: Array<[string, string]>; amount: number; checkoutUrl: string | null; whatsappUrl: string; transfer: { alias: string; holder: string; bank: string; cbu: string } | null }
   | { type: "confirmed"; bookingId: string; rows: Array<[string, string]> }
-  | { type: "map"; address: string; embedUrl: string; directionsUrl: string }
+  | { type: "map"; address: string; embedUrl: string; directionsUrl: string; viewUrl?: string; place?: string }
   | { type: "whatsapp"; reason: string; url: string }
 
 export type ChatOutput = { text: string } | { card: ChatCard }

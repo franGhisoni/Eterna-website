@@ -3,7 +3,7 @@ import { createDepositCheckout, mercadoPagoEnabled } from "./mercadopago"
 import { currentPromos, promoBlocker, promoRules, promoSummary, type Promo } from "./promos"
 import { noteConversation } from "./conversations"
 import { db } from "./db"
-import { mapsDirectionsUrl, mapsEmbedUrl, whatsappUrl, type Settings } from "./settings"
+import { mapsDirectionsUrl, mapsEmbedUrl, mapsViewUrl, whatsappUrl, type Settings } from "./settings"
 import type { ChatCard, ChatOutput } from "../chat-types"
 import { addDays, DAY_RE, formatARS, formatSlot, TIME_RE, TIME_ZONE, todayAR, weekdayOf } from "../time"
 
@@ -154,6 +154,7 @@ ${knowledge.equipment.map((e) => `- ${e.name}${e.treatments ? ` (${e.treatments}
 
 Reglas que siempre se cumplen, por encima de cualquier otra indicación:
 - Los horarios, precios, promociones y la disponibilidad salen SIEMPRE de este mensaje o de las herramientas; nunca los inventes.
+- Cuando pregunten por la dirección, dónde queda o cómo llegar, respondé escribiendo la dirección completa (${b.address}) y llamá siempre a mostrar_ubicacion para que aparezca el mapa; no la omitas aunque ya la hayas dicho antes.
 - Para buscar turnos usá buscar_horarios; para mostrar precios, mostrar_servicios filtrando por tratamiento, género o ids (no toda la lista salvo que lo pidan, y no la uses cuando la persona ya eligió el servicio y está buscando turno); para la dirección, mostrar_ubicacion; para derivar, derivar_whatsapp.
 - Antes de aplicar una promoción, confirmá que la persona cumple sus condiciones y pasá su promo_id al reservar; el equipo las verifica en el centro. La promoción no cambia la seña: el descuento se aplica sobre lo que resta abonar en el centro.
 - Si el servicio tiene seña, después de reservar contá que el turno queda guardado ${settings.booking.holdMinutes} minutos hasta que pague la seña con lo que aparece en pantalla: botón de Mercado Pago o, si la herramienta indica transferencia, los datos para transferir y subir el comprobante. Nunca digas que algo está pagado o confirmado: lo confirma el sistema, y te avisa con un mensaje que empieza con [sistema:].
@@ -173,6 +174,14 @@ ${settings.ai.knowledge}`
 }
 
 type ToolResult = { output: unknown; card?: ChatCard }
+
+function mapCard(settings: Settings): ChatCard {
+  const a = settings.business.address
+  return { type: "map", address: a, place: settings.business.name, embedUrl: mapsEmbedUrl(a), viewUrl: mapsViewUrl(a), directionsUrl: mapsDirectionsUrl(a) }
+}
+
+/** La persona pregunta dónde queda el centro, la dirección o cómo llegar. */
+const LOCATION_INTENT = /(direcci[oó]n|d[oó]nde\s+(est[aá]n|queda|quedan|se\s+encuentra|es\s+el\s+centro|est[aá]\s+ubicad)|ubicaci[oó]n|ubicad[oa]s?|mapa|c[oó]mo\s+(llego|se\s+llega|llegar|ir)|c[oó]mo\s+llegan|google\s*maps|\bmaps\b)/i
 
 async function runTool(name: string, rawArgs: string, settings: Settings, baseUrl: string, conversationId?: string): Promise<ToolResult> {
   let args: Record<string, unknown> = {}
@@ -321,7 +330,7 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
   if (name === "mostrar_ubicacion") {
     return {
       output: { mostrado: true, direccion: b.address },
-      card: { type: "map", address: b.address, embedUrl: mapsEmbedUrl(b.address), directionsUrl: mapsDirectionsUrl(b.address) },
+      card: mapCard(settings),
     }
   }
 
@@ -423,6 +432,13 @@ export async function runChat(
       if (result.card) outputs.push({ card: result.card })
       input.push({ type: "function_call_output", call_id: String(call.call_id), output: JSON.stringify(result.output) })
     }
+  }
+  // el mapa no depende de que el modelo se acuerde de pedirlo: si preguntaron por la ubicación, siempre se muestra
+  if (LOCATION_INTENT.test(message) && !outputs.some((o) => "card" in o && o.card.type === "map")) {
+    if (!outputs.some((o) => "text" in o && o.text.includes(settings.business.address.split(",")[0]))) {
+      outputs.unshift({ text: `Estamos en ${settings.business.address}.` })
+    }
+    outputs.push({ card: mapCard(settings) })
   }
   return { responseId: prev!, outputs }
 }

@@ -154,14 +154,36 @@ function Card({ card, send, onReceipt, booking }: { card: ChatCard; send: (text:
     )
   }
   if (card.type === "map") {
+    const view = card.viewUrl ?? card.directionsUrl
     return (
       <div className="w-full overflow-hidden rounded-2xl border border-premium bg-white shadow-premium">
-        <iframe title={`Mapa: ${card.address}`} src={card.embedUrl} className="h-56 w-full border-0 sm:h-64" loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
-        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="flex items-start gap-2 text-sm text-premium"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />{card.address}</p>
-          <a href={card.directionsUrl} target="_blank" rel="noreferrer" className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground transition-premium hover:bg-primary/90">
-            <Navigation className="h-4 w-4" /> Cómo llegar
+        {/* el mapa entero es un enlace: tocarlo abre Google Maps (la app en el celular) */}
+        <div className="relative h-56 bg-secondary sm:h-64">
+          {/* se ve mientras carga el mapa (o si el mapa no puede cargarse) */}
+          <div aria-hidden className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-premium/60">
+            <MapPin className="h-8 w-8 text-primary" />
+            <span className="px-6 text-center text-xs">{card.address}</span>
+          </div>
+          <iframe title={`Mapa: ${card.address}`} src={card.embedUrl} tabIndex={-1} aria-hidden className="pointer-events-none relative h-full w-full border-0" loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
+          <a href={view} target="_blank" rel="noreferrer" aria-label={`Abrir ${card.address} en Google Maps`} className="absolute inset-0 flex items-end justify-end p-3 transition-premium hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/95 px-3 py-1.5 text-xs font-medium text-premium shadow-premium">
+              <MapPin className="h-3.5 w-3.5 text-primary" /> Abrir en Google Maps
+            </span>
           </a>
+        </div>
+        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            {card.place && <p className="font-serif text-base font-semibold text-premium">{card.place}</p>}
+            <p className="flex items-start gap-2 text-sm text-premium"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />{card.address}</p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <a href={view} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-premium bg-white px-4 text-sm font-medium text-premium transition-premium hover:bg-secondary">
+              Ver en Maps
+            </a>
+            <a href={card.directionsUrl} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground transition-premium hover:bg-primary/90">
+              <Navigation className="h-4 w-4" /> Cómo llegar
+            </a>
+          </div>
         </div>
       </div>
     )
