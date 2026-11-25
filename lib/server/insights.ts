@@ -69,7 +69,7 @@ export async function alerts() {
     ),
     pool.query<{ id: string; name: string; balance: number }>(
       `select b.id, b.name, (coalesce(b.final_price, b.price) - x.paid)::int as balance from bookings b
-       join lateral (select greatest(coalesce(sum(amount), 0), b.deposit) as paid from payments p where p.booking_id = b.id) x on true
+       join lateral (select coalesce(sum(amount), 0) as paid from payments p where p.booking_id = b.id) x on true
        where b.status = 'done' and x.paid < coalesce(b.final_price, b.price)
        order by b.starts_at desc limit 50`,
     ),

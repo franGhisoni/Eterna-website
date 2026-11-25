@@ -165,9 +165,9 @@ export async function generateMessageReminders(): Promise<number> {
   // 4) saldo pendiente de sesiones realizadas
   const debt = await pool.query<{ id: string; patient_id: number | null; service_name: string; name: string; balance: number; starts_at: Date }>(
     `select b.id, b.patient_id, b.service_name, b.name, b.starts_at,
-            (coalesce(b.final_price, b.price) - greatest(coalesce((select sum(amount) from payments p where p.booking_id = b.id), 0), b.deposit))::int as balance
+            (coalesce(b.final_price, b.price) - coalesce((select sum(amount) from payments p where p.booking_id = b.id), 0))::int as balance
      from bookings b where b.status = 'done' and b.phone <> '' and b.starts_at > now() - interval '90 days'
-       and coalesce(b.final_price, b.price) - greatest(coalesce((select sum(amount) from payments p where p.booking_id = b.id), 0), b.deposit) > 0`,
+       and coalesce(b.final_price, b.price) - coalesce((select sum(amount) from payments p where p.booking_id = b.id), 0) > 0`,
   )
   for (const b of debt.rows) {
     const r = await pool.query(

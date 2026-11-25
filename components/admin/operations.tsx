@@ -30,7 +30,7 @@ export type AgendaItem = {
   paid: number
   balance: number
   pay_status: "sin_cargo" | "sin_sena" | "sena_pendiente" | "sena_abonada" | "pago_parcial" | "pagado"
-  deposit_unrecorded: number
+  deposit_pending: number
   source: string
   zones: string
   professional: string
@@ -64,7 +64,7 @@ export type PatientSummary = {
   last_session: string | null
   billed: number
   paid: number
-  deposits_unrecorded?: number
+  deposits_pending?: number
   balance: number
 }
 
@@ -135,7 +135,7 @@ function sameDayNextMonth(day: string): string {
 }
 
 /** Importe editable en el lugar: se toca, se escribe y se guarda con Enter o al salir (Escape cancela). */
-function QuickMoney({ label, value, onSave, empty, emphasis }: { label: string; value: number; onSave?: (n: number) => void; empty?: string; emphasis?: "strong" | "due" }) {
+function QuickMoney({ label, value, onSave, empty, emphasis, pending, hint }: { label: string; value: number; onSave?: (n: number) => void; empty?: string; emphasis?: "strong" | "due"; pending?: string; hint?: string }) {
   const [editing, setEditing] = useState(false)
   const [v, setV] = useState(String(value))
   useEffect(() => setV(String(value)), [value])
@@ -177,6 +177,8 @@ function QuickMoney({ label, value, onSave, empty, emphasis }: { label: string; 
       ) : (
         <p className={`mt-0.5 ${valueCls}`}>{value > 0 || !empty ? formatARS(value) : empty}</p>
       )}
+      {pending && !editing && <p className="mt-0.5 text-[11px] font-semibold leading-tight text-amber-700">{pending}</p>}
+      {hint && !editing && <p className="mt-0.5 text-[11px] leading-tight text-ink-3">{hint}</p>}
     </div>
   )
 }
@@ -203,7 +205,7 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
   const minutes = Math.round((new Date(b.ends_at).getTime() - new Date(b.starts_at).getTime()) / 60_000)
   const soon = new Date(b.starts_at) <= new Date(Date.now() + 12 * 3600_000)
   const needsConfirm = ["reserved", "pending_review", "conflict", "expired"].includes(b.state)
-  const payLabel = b.deposit_unrecorded > 0 ? "Registrar seña" : "Registrar pago"
+  const payLabel = b.deposit_pending > 0 ? "Registrar seña" : "Registrar pago"
 
   // acción principal: la que más probablemente se necesita ahora
   const canNext = !!onNext && !!b.patient_id && !closed && b.state !== "no_show"
@@ -213,7 +215,7 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
       ? { label: "Próxima sesión", run: () => onNext!(b), icon: <CalendarPlus /> }
       : active && soon
       ? { label: "Realizado", run: () => onStatus(b, "done"), icon: <CheckCircle2 /> }
-      : b.balance > 0 || b.deposit_unrecorded > 0
+      : b.balance > 0 || b.deposit_pending > 0
         ? { label: payLabel, run: () => onPay(b), icon: <Wallet /> }
         : needsConfirm
           ? { label: "Confirmar", run: () => onStatus(b, "confirmed") }
@@ -232,7 +234,7 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
   ]
 
   return (
-    <li className={`group grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 py-4 first:pt-1 last:pb-1 lg:grid-cols-[76px_minmax(0,1fr)_minmax(300px,360px)_236px] lg:items-start ${closed ? "opacity-70" : ""}`}>
+    <li className={`group grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 py-4 first:pt-1 last:pb-1 xl:grid-cols-[76px_minmax(0,1fr)_minmax(320px,380px)_236px] xl:items-start ${closed ? "opacity-70" : ""}`}>
       {/* horario */}
       <div className="w-[76px]">
         <p className="font-serif text-xl font-semibold leading-none tabular-nums text-ink">{hhmm(b.starts_at)}</p>
@@ -261,7 +263,7 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
             b.name
           )}
         </p>
-        <p className="text-sm text-ink-2 lg:truncate">{b.service_name}</p>
+        <p className="text-sm text-ink-2 xl:truncate">{b.service_name}</p>
         <p className="mt-0.5 truncate text-xs text-ink-3">
           {[b.zones, b.professional && `con ${b.professional}`, SOURCE[b.source] ?? b.source].filter(Boolean).join(" · ")}
         </p>
@@ -275,18 +277,18 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
       </div>
 
       {/* dinero: siempre en el mismo lugar y orden */}
-      <div className="col-span-2 grid grid-cols-4 gap-2 rounded-lg bg-surface/70 px-3 py-2 lg:col-span-1">
+      <div className="col-span-2 grid grid-cols-4 gap-2 rounded-lg bg-surface/70 px-3 py-2 xl:col-span-1">
         <div>
           <QuickMoney label="Precio" value={b.final_price} emphasis="strong" empty="Cargar" onSave={onQuick && !closed ? (n) => onQuick(b, b.discount > 0 ? { finalPrice: n } : { price: n, finalPrice: n }) : undefined} />
           {b.discount > 0 && <p className="text-[11px] tabular-nums text-ink-3 line-through" aria-label={`Precio sin descuento ${formatARS(b.price)}`}>{formatARS(b.price)}</p>}
         </div>
-        <QuickMoney label="Seña" value={b.deposit} empty="Definir" onSave={onQuick && !closed ? (n) => onQuick(b, { deposit: n }) : undefined} />
-        <QuickMoney label="Pagado" value={b.paid + b.deposit_unrecorded} />
+        <QuickMoney label="Seña" value={b.deposit} empty="Definir" pending={b.deposit_pending > 0 ? (b.paid > 0 ? `faltan ${formatARS(b.deposit_pending)}` : "pendiente") : undefined} onSave={onQuick && !closed ? (n) => onQuick(b, { deposit: n }) : undefined} />
+        <QuickMoney label="Pagado" value={b.paid} />
         <QuickMoney label="Resta" value={b.balance} emphasis="due" />
       </div>
 
       {/* acciones */}
-      <div className="col-span-2 flex items-center justify-end gap-1.5 lg:col-span-1 lg:pt-0.5">
+      <div className="col-span-2 flex items-center justify-end gap-1.5 xl:col-span-1 xl:pt-0.5">
         {primary && (
           <button onClick={primary.run} className={`${btnSmall} ${primary.label === "Realizado" ? "" : "border-primary/25 text-primary"}`}>
             {primary.icon}
@@ -802,8 +804,8 @@ export function PaymentDialog({ booking, patient, flash, onClose, onSaved }: {
   onSaved: () => void
 }) {
   const catalog = useCatalog(flash)
-  const registeringDeposit = !!booking && booking.deposit_unrecorded > 0
-  const suggested = booking ? (registeringDeposit ? booking.deposit_unrecorded : booking.balance) : 0
+  const registeringDeposit = !!booking && booking.deposit_pending > 0
+  const suggested = booking ? (registeringDeposit ? booking.deposit_pending : booking.balance) : 0
   const [f, setF] = useState({ amount: suggested || "", method: "", concept: registeringDeposit ? "Seña" : "Pago parcial", paidAt: toLocalInput(new Date()), notes: "" })
   const [busy, setBusy] = useState(false)
   const set = (p: Partial<typeof f>) => setF((v) => ({ ...v, ...p }))
@@ -843,8 +845,8 @@ export function PaymentDialog({ booking, patient, flash, onClose, onSaved }: {
           <div className="rounded-xl border border-line bg-surface p-3 text-sm text-ink">
             <p className="font-medium">{booking.name} · {booking.service_name}</p>
             <p className="text-ink-2">{shortDateTime(booking.starts_at)}</p>
-            <p className="mt-1">Precio {formatARS(booking.final_price)} · Seña {formatARS(booking.deposit)} · Pagado {formatARS(booking.paid + booking.deposit_unrecorded)} · <strong>Resta {formatARS(booking.balance)}</strong></p>
-            {registeringDeposit && <p className="mt-1 text-xs text-ink-3">La seña ya se considera abonada (se paga al reservar). Registrala para dejar asentado con qué medio y cuándo se pagó; el saldo no cambia.</p>}
+            <p className="mt-1">Precio {formatARS(booking.final_price)} · Seña {formatARS(booking.deposit)} · Pagado {formatARS(booking.paid)} · <strong>Resta {formatARS(booking.balance)}</strong></p>
+            {registeringDeposit && <p className="mt-1 text-xs text-ink-3">La seña figura como pendiente hasta que registres cuánto pagó y cuándo. Al guardar, se descuenta del saldo.</p>}
           </div>
         )}
         {!booking && patient && <p className="text-sm text-ink">Pago a cuenta de <strong>{patient.name}</strong> (sin turno asociado).</p>}
@@ -864,7 +866,7 @@ export function PaymentDialog({ booking, patient, flash, onClose, onSaved }: {
           <label className={`${lbl} col-span-2`}>Notas<input value={f.notes} onChange={(e) => set({ notes: e.target.value })} className={`${field} mt-1`} placeholder="Opcional" /></label>
         </div>
         {booking && amount > 0 && (() => {
-          const after = Math.max(0, booking.balance - Math.max(0, amount - booking.deposit_unrecorded))
+          const after = Math.max(0, booking.balance - amount)
           return <p className="text-sm text-ink-2">Después de este pago resta: <strong className="text-ink">{formatARS(after)}</strong>{after === 0 && " · queda pagado"}</p>
         })()}
       </div>
@@ -936,7 +938,7 @@ export function AgendaView({ flash, onPatient }: { flash: Flash; onPatient: (id:
   const pros = Array.from(new Set((items ?? []).map((b) => b.professional).filter(Boolean)))
   const totals = visible
     .filter((b) => b.state !== "cancelled" && b.state !== "expired")
-    .reduce((a, b) => ({ sold: a.sold + b.final_price, paid: a.paid + b.paid + b.deposit_unrecorded, due: a.due + b.balance }), { sold: 0, paid: 0, due: 0 })
+    .reduce((a, b) => ({ sold: a.sold + b.final_price, paid: a.paid + b.paid, due: a.due + b.balance }), { sold: 0, paid: 0, due: 0 })
   const isToday = anchor === todayAR()
 
   return (
@@ -1128,7 +1130,7 @@ export function DashboardView({ flash, onPatient, go }: { flash: Flash; onPatien
                     <li key={b.id} className="flex items-center justify-between gap-3 py-2.5">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-ink">{b.name}</p>
-                        <p className="text-xs text-ink-2">Seña de {formatARS(b.deposit_unrecorded)} sin registrar el medio · {shortDateTime(b.starts_at)}</p>
+                        <p className="text-xs text-ink-2">Seña pendiente de {formatARS(b.deposit_pending)}: registrá cuánto pagó y cuándo · {shortDateTime(b.starts_at)}</p>
                       </div>
                       <button onClick={() => actions.pay(b)} className={btnSmall}>Registrar</button>
                     </li>
@@ -1182,7 +1184,7 @@ export function PatientsView({ flash, openId, onOpened }: { flash: Flash; openId
     return [...list].sort(by[sort])
   }, [patients, status, q, sort])
   const totals = visible.reduce((a, p) => ({ balance: a.balance + p.balance, sessions: a.sessions + p.sessions_done }), { balance: 0, sessions: 0 })
-  const paidOf = (p: PatientSummary) => p.paid + (p.deposits_unrecorded ?? 0)
+  const paidOf = (p: PatientSummary) => p.paid
   const filtered = !!q || !!status
 
   return (
