@@ -23,16 +23,16 @@ export async function generateFollowUps(): Promise<number> {
     candidates as (
       select 'sena:' || id as k, 'Solicitar seña' as title, 'Turno ' || to_char(starts_at at time zone '${AR}', 'DD/MM HH24:MI') || ' · ' || service_name || ' sin seña abonada' as d,
              'cobranza' as kind, patient_id, id as booking_id, null::uuid as conv, (starts_at at time zone '${AR}')::date - 1 as due
-      from active where status in ('reserved','confirmed') and deposit > 0 and paid = 0
+      from active where status = 'pending_payment' and expires_at > now() and deposit > 0 and paid = 0
         and starts_at between now() and now() + make_interval(hours => $1::int)
       union all
       select 'confirmar:' || id, 'Confirmar turno', 'Turno ' || to_char(starts_at at time zone '${AR}', 'DD/MM HH24:MI') || ' · ' || service_name || ' todavía sin confirmar',
              'turnos', patient_id, id, null, (starts_at at time zone '${AR}')::date - 1
       from active where status = 'reserved' and starts_at between now() and now() + interval '48 hours'
       union all
-      select 'saldo:' || id, 'Recordar saldo pendiente', 'Sesión del ' || to_char(starts_at at time zone '${AR}', 'DD/MM') || ': resta ' || (fp - paid)::text,
+      select 'saldo:' || id, 'Recordar saldo pendiente', 'Sesión del ' || to_char(starts_at at time zone '${AR}', 'DD/MM') || ': resta ' || (fp - greatest(paid, deposit))::text,
              'cobranza', patient_id, id, null, (now() at time zone '${AR}')::date
-      from active where status = 'done' and fp - paid > 0
+      from active where status = 'done' and fp - greatest(paid, deposit) > 0
       union all
       select 'continuar:' || p.id || ':' || to_char(x.last_done, 'YYYYMMDD'), 'Consultar si desea continuar el tratamiento',
              'Última sesión el ' || to_char(x.last_done at time zone '${AR}', 'DD/MM/YYYY') || ' y no tiene próximo turno', 'seguimiento', p.id, null, null, (now() at time zone '${AR}')::date
@@ -81,8 +81,8 @@ export async function alerts() {
     ),
     pool.query<{ id: string; name: string; balance: number }>(
       `select b.id, b.name, (coalesce(b.final_price, b.price) - x.paid)::int as balance from bookings b
-       join lateral (select coalesce(sum(amount), 0) as paid from payments p where p.booking_id = b.id) x on true
-       where b.status not in ('cancelled','pending_payment','no_show') and x.paid > 0 and x.paid < coalesce(b.final_price, b.price)
+       join lateral (select greatest(coalesce(sum(amount), 0), b.deposit) as paid from payments p where p.booking_id = b.id) x on true
+       where b.status = 'done' and x.paid < coalesce(b.final_price, b.price)
        order by b.starts_at desc limit 50`,
     ),
     pool.query<{ id: number; name: string }>("select id, name from patients where status <> 'Archivada' and (phone = '' or (email = '' and source = '')) order by name limit 50"),

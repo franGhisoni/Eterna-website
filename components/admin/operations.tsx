@@ -30,6 +30,7 @@ export type AgendaItem = {
   paid: number
   balance: number
   pay_status: "sin_cargo" | "sin_sena" | "sena_pendiente" | "sena_abonada" | "pago_parcial" | "pagado"
+  deposit_unrecorded: number
   source: string
   zones: string
   professional: string
@@ -233,13 +234,14 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
             <span className="text-premium/60">Seña {b.deposit > 0 ? formatARS(b.deposit) : "sin definir"}</span>
           )}
           <span className="text-premium/40">·</span>
-          <span className="text-premium/70">Pagado {formatARS(b.paid)}</span>
+          <span className="text-premium/70">Pagado {formatARS(b.paid + b.deposit_unrecorded)}</span>
           <span className="text-premium/40">·</span>
           <span className={b.balance > 0 ? "font-medium text-primary" : "text-premium/60"}>Resta {formatARS(b.balance)}</span>
         </p>
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           <span className={`${chip} ${st.cls}`}>{st.label}</span>
           <span className={`${chip} ${PAY[b.pay_status].cls}`}>{PAY[b.pay_status].label}</span>
+          {b.deposit_unrecorded > 0 && <span className="text-xs text-premium/50" title="La seña se abona al reservar. Registrala para dejar asentado el medio y la fecha.">seña sin registrar el medio</span>}
           {b.rescheduled > 0 && <span className={`${chip} border-violet-200 bg-violet-50 text-violet-700`}>Reprogramado</span>}
           <span className="text-xs text-premium/50">Origen: {SOURCE[b.source] ?? b.source}</span>
           {b.phone && (
@@ -249,7 +251,7 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
         {b.notes && <p className="text-xs text-premium/60">Obs.: {b.notes}</p>}
       </div>
       <div className="flex shrink-0 flex-wrap gap-1.5 lg:max-w-[260px] lg:justify-end">
-        {b.state !== "cancelled" && b.state !== "expired" && <button onClick={() => onPay(b)} className={btnSmall}><Wallet className="h-3.5 w-3.5" /> {b.paid === 0 ? "Registrar seña" : "Registrar pago"}</button>}
+        {b.state !== "cancelled" && b.state !== "expired" && <button onClick={() => onPay(b)} className={btnSmall}><Wallet className="h-3.5 w-3.5" /> {b.deposit_unrecorded > 0 ? "Registrar seña" : "Registrar pago"}</button>}
         <button onClick={() => onEdit(b)} className={`${btnSmall} border-primary/30 text-primary`}>Editar</button>
         {b.has_receipt && <a href={`/api/admin/bookings/${b.id}/comprobante`} target="_blank" rel="noreferrer" className={btnSmall}>Comprobante</a>}
         {(b.state === "reserved" || b.state === "pending_review" || b.state === "conflict" || b.state === "expired") && (
@@ -705,13 +707,14 @@ export function PaymentDialog({ booking, patient, flash, onClose, onSaved }: {
   onSaved: () => void
 }) {
   const catalog = useCatalog(flash)
-  const suggested = booking ? (booking.paid === 0 && booking.deposit > 0 && booking.deposit < booking.balance ? booking.deposit : booking.balance) : 0
-  const [f, setF] = useState({ amount: suggested || "", method: "", concept: booking && booking.paid === 0 && booking.deposit > 0 ? "Seña" : "Pago parcial", paidAt: toLocalInput(new Date()), notes: "" })
+  const registeringDeposit = !!booking && booking.deposit_unrecorded > 0
+  const suggested = booking ? (registeringDeposit ? booking.deposit_unrecorded : booking.balance) : 0
+  const [f, setF] = useState({ amount: suggested || "", method: "", concept: registeringDeposit ? "Seña" : "Pago parcial", paidAt: toLocalInput(new Date()), notes: "" })
   const [busy, setBusy] = useState(false)
   const set = (p: Partial<typeof f>) => setF((v) => ({ ...v, ...p }))
   const method = f.method || catalog?.methods[0] || ""
   const amount = Number(f.amount)
-  const concept = booking && amount >= booking.balance ? (booking.paid === 0 ? "Pago total" : "Saldo") : f.concept
+  const concept = booking && !registeringDeposit && amount >= booking.balance ? (booking.paid === 0 ? "Pago total" : "Saldo") : f.concept
 
   const save = async () => {
     if (!amount || amount <= 0) return flash("Ingresá el importe", true)
@@ -736,7 +739,8 @@ export function PaymentDialog({ booking, patient, flash, onClose, onSaved }: {
           <div className="rounded-xl border border-premium bg-premium-light/60 p-3 text-sm text-premium">
             <p className="font-medium">{booking.name} · {booking.service_name}</p>
             <p className="text-premium/65">{shortDateTime(booking.starts_at)}</p>
-            <p className="mt-1">Precio {formatARS(booking.final_price)} · Pagado {formatARS(booking.paid)} · <strong>Resta {formatARS(booking.balance)}</strong></p>
+            <p className="mt-1">Precio {formatARS(booking.final_price)} · Seña {formatARS(booking.deposit)} · Pagado {formatARS(booking.paid + booking.deposit_unrecorded)} · <strong>Resta {formatARS(booking.balance)}</strong></p>
+            {registeringDeposit && <p className="mt-1 text-xs text-premium/60">La seña ya se considera abonada (se paga al reservar). Registrala para dejar asentado con qué medio y cuándo se pagó; el saldo no cambia.</p>}
           </div>
         )}
         {!booking && patient && <p className="text-sm text-premium">Pago a cuenta de <strong>{patient.name}</strong> (sin turno asociado).</p>}
@@ -755,7 +759,10 @@ export function PaymentDialog({ booking, patient, flash, onClose, onSaved }: {
           <label className={lbl}>Fecha del pago<input type="datetime-local" value={f.paidAt} onChange={(e) => set({ paidAt: e.target.value })} className={`${field} mt-1`} /></label>
           <label className={`${lbl} col-span-2`}>Notas<input value={f.notes} onChange={(e) => set({ notes: e.target.value })} className={`${field} mt-1`} placeholder="Opcional" /></label>
         </div>
-        {booking && amount > 0 && <p className="text-sm text-premium/70">Después de este pago resta: <strong className="text-premium">{formatARS(Math.max(0, booking.balance - amount))}</strong>{amount >= booking.balance && " · queda pagado"}</p>}
+        {booking && amount > 0 && (() => {
+          const after = Math.max(0, booking.balance - Math.max(0, amount - booking.deposit_unrecorded))
+          return <p className="text-sm text-premium/70">Después de este pago resta: <strong className="text-premium">{formatARS(after)}</strong>{after === 0 && " · queda pagado"}</p>
+        })()}
         <div className="flex gap-2">
           <button onClick={save} disabled={busy || !catalog} className={btnPrimary}><Save className="h-4 w-4" /> Registrar</button>
           <button onClick={onClose} className={btnGhost}>Cancelar</button>
@@ -953,7 +960,7 @@ export function DashboardView({ flash, onPatient, go }: { flash: Flash; onPatien
             {d.toReview.map((b) => <li key={b.id}>· {b.name}: {STATUS[b.state].label.toLowerCase()} ({shortDateTime(b.starts_at)})</li>)}
             {d.withoutDeposit.slice(0, 12).map((b) => (
               <li key={b.id}>
-                · {b.name} — turno {shortDateTime(b.starts_at)} sin seña ({formatARS(b.deposit)} pedida){" "}
+                · {b.name} — turno {shortDateTime(b.starts_at)}: seña de {formatARS(b.deposit_unrecorded)} sin registrar el medio de pago{" "}
                 <button onClick={() => actions.pay(b)} className="text-primary hover:underline">registrar</button>
               </li>
             ))}

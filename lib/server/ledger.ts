@@ -31,6 +31,8 @@ export type AgendaItem = Booking & {
   paid: number
   balance: number
   pay_status: PayStatus
+  /** seña que se dio por abonada al reservar pero todavía no tiene un pago registrado (medio y fecha) */
+  deposit_unrecorded: number
   rescheduled: number
   has_receipt: boolean
   state: string
@@ -115,14 +117,20 @@ const AGENDA_SELECT = `
     exists (select 1 from booking_receipts r where r.booking_id = b.id) as has_receipt
   from bookings b`
 
+/** Regla de Eterna: un turno firme siempre tiene la seña abonada (sin seña no se reserva). */
+export const DEPOSIT_PAID_STATUSES = ["reserved", "confirmed", "done", "no_show", "conflict"]
+
 function decorate(b: AgendaItem): AgendaItem {
   const final = b.final_price ?? b.price
   const expired = b.status === "pending_payment" && (!b.expires_at || new Date(b.expires_at) <= new Date())
+  const unrecorded = DEPOSIT_PAID_STATUSES.includes(b.status) && b.deposit > 0 && b.paid < b.deposit ? b.deposit - b.paid : 0
+  const covered = b.paid + unrecorded
   return {
     ...b,
     final_price: final,
-    balance: Math.max(0, final - b.paid),
-    pay_status: payStatus(final, b.deposit, b.paid),
+    balance: Math.max(0, final - covered),
+    pay_status: payStatus(final, b.deposit, covered),
+    deposit_unrecorded: unrecorded,
     state: expired ? "expired" : b.status,
   }
 }
@@ -479,6 +487,7 @@ export type PatientSummary = {
   next_appointment: Date | null
   last_session: Date | null
   billed: number
+  deposits_unrecorded: number
   paid: number
   balance: number
 }
@@ -491,10 +500,12 @@ const PATIENT_SELECT = `
     (select min(b.starts_at) from bookings b where b.patient_id = p.id and b.starts_at > now() and b.status in ('reserved','pending_payment','pending_review','confirmed','conflict')) as next_appointment,
     coalesce((select max(b.starts_at) from bookings b where b.patient_id = p.id and b.status = 'done'), p.last_session::timestamptz) as last_session,
     coalesce((select sum(coalesce(b.final_price, b.price)) from bookings b where b.patient_id = p.id and b.status not in ('cancelled','pending_payment','no_show')), 0)::int as billed,
-    coalesce((select sum(amount) from payments x where x.patient_id = p.id), 0)::int as paid
+    coalesce((select sum(amount) from payments x where x.patient_id = p.id), 0)::int as paid,
+    coalesce((select sum(greatest(b.deposit - coalesce((select sum(amount) from payments y where y.booking_id = b.id), 0), 0))
+              from bookings b where b.patient_id = p.id and b.status in ('reserved','confirmed','done','no_show','conflict')), 0)::int as deposits_unrecorded
   from patients p`
 
-const withBalance = (p: PatientSummary): PatientSummary => ({ ...p, balance: Math.max(0, p.legacy_balance + p.billed - p.paid) })
+const withBalance = (p: PatientSummary): PatientSummary => ({ ...p, balance: Math.max(0, p.legacy_balance + p.billed - p.paid - p.deposits_unrecorded) })
 
 export async function listPatientSummaries(): Promise<PatientSummary[]> {
   const { rows } = await (await db()).query<PatientSummary>(`${PATIENT_SELECT} order by (p.status = 'Activa') desc, p.name`)
@@ -599,7 +610,7 @@ export async function dashboard() {
     upcomingCount: upcoming.rows[0].n,
     collectedMonth: money.rows[0].month,
     collectedToday: money.rows[0].day,
-    withoutDeposit: active.filter((b) => b.deposit > 0 && b.paid === 0),
+    withoutDeposit: active.filter((b) => b.deposit_unrecorded > 0),
     toReview: active.filter((b) => b.state === "pending_review" || b.state === "conflict"),
     pendingBalance: active.reduce((n, b) => n + b.balance, 0),
   }

@@ -986,7 +986,7 @@ export function PeriodPanel({ flash, onPatient, go }: { flash: Flash; onPatient:
           {a.promosExpiring.length > 0 && <p>· Promociones por vencer: {a.promosExpiring.map((p) => `${p.title} (${p.ends_on})`).join(", ")} <button onClick={() => go("promos")} className="text-primary hover:underline">ver</button></p>}
           {a.withoutNextSession.length > 0 && <p>· Con sesiones y sin fecha para continuar ({a.withoutNextSession.length}): {names(a.withoutNextSession)}</p>}
           {a.inactivePatients.length > 0 && <p>· Hace tiempo que no vuelven ({a.inactivePatients.length}): {names(a.inactivePatients)}</p>}
-          {a.partialPayments.length > 0 && <p>· Pagos parciales pendientes: {a.partialPayments.slice(0, 8).map((p) => `${p.name} (resta ${formatARS(p.balance)})`).join(", ")}</p>}
+          {a.partialPayments.length > 0 && <p>· Sesiones realizadas con saldo pendiente: {a.partialPayments.slice(0, 8).map((p) => `${p.name} (resta ${formatARS(p.balance)})`).join(", ")}</p>}
           {a.incompleteProfiles.length > 0 && <p>· Fichas incompletas: {names(a.incompleteProfiles)}</p>}
           {d.followUpsCreated > 0 && <p className="text-xs text-premium/55">Se crearon {d.followUpsCreated} tareas de seguimiento nuevas. <button onClick={() => go("tareas")} className="text-primary hover:underline">Ver tareas</button></p>}
         </div>
