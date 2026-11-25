@@ -123,12 +123,60 @@ const promoActiveOn = (p: Promo, day: string) => p.active && (!p.starts_on || p.
 
 /* ───────────── Tarjeta de turno ───────────── */
 
-export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, compact }: {
+const DURATIONS = [15, 20, 30, 40, 45, 60, 75, 90, 120]
+
+/** Importe editable en el lugar: se toca, se escribe y se guarda con Enter o al salir. */
+function QuickMoney({ label, value, onSave, strong, empty }: { label?: string; value: number; onSave: (n: number) => void; strong?: boolean; empty?: string }) {
+  const [editing, setEditing] = useState(false)
+  const [v, setV] = useState(String(value))
+  useEffect(() => setV(String(value)), [value])
+  const commit = () => {
+    setEditing(false)
+    const n = Math.round(Number(v))
+    if (Number.isFinite(n) && n >= 0 && n !== value) onSave(n)
+    else setV(String(value))
+  }
+  if (editing)
+    return (
+      <span className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        {label && <span className="text-premium/60">{label}</span>}
+        <input
+          autoFocus
+          type="number"
+          min={0}
+          value={v}
+          onChange={(e) => setV(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit()
+            if (e.key === "Escape") (setEditing(false), setV(String(value)))
+          }}
+          className="h-7 w-24 rounded-md border border-primary/40 bg-white px-1.5 text-sm"
+        />
+      </span>
+    )
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        setEditing(true)
+      }}
+      title="Tocá para cambiarlo"
+      className="rounded border-b border-dashed border-premium/40 hover:border-primary hover:text-primary"
+    >
+      {label && <span className="text-premium/60">{label} </span>}
+      {value > 0 || !empty ? <span className={strong ? "font-semibold" : ""}>{formatARS(value)}</span> : <span className="text-primary">{empty}</span>}
+    </button>
+  )
+}
+
+export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick, compact }: {
   b: AgendaItem
   onEdit: (b: AgendaItem) => void
   onPay: (b: AgendaItem) => void
   onStatus: (b: AgendaItem, status: string) => void
   onPatient?: (id: number) => void
+  onQuick?: (b: AgendaItem, patch: Record<string, unknown>) => void
   compact?: boolean
 }) {
   const st = STATUS[b.state] ?? STATUS.confirmed
@@ -138,7 +186,20 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, compact 
     <li className="flex flex-col gap-3 py-3.5 lg:flex-row lg:items-start">
       <div className="w-24 shrink-0">
         <p className="font-serif text-lg font-semibold leading-none text-premium">{hhmm(b.starts_at)}</p>
-        <p className="mt-1 text-xs text-premium/55">a {hhmm(b.ends_at)} · {minutes} min</p>
+        <p className="mt-1 text-xs text-premium/55">a {hhmm(b.ends_at)}</p>
+        {onQuick ? (
+          <select
+            value={minutes}
+            onChange={(e) => onQuick(b, { durationMin: Number(e.target.value) })}
+            className="mt-1 h-7 rounded-md border border-premium bg-white px-1 text-xs text-premium"
+            aria-label="Duración"
+            title="Duración del turno"
+          >
+            {Array.from(new Set([...DURATIONS, minutes])).sort((x, y) => x - y).map((m) => <option key={m} value={m}>{m} min</option>)}
+          </select>
+        ) : (
+          <p className="text-xs text-premium/55">{minutes} min</p>
+        )}
         {compact && <p className="mt-1 text-xs text-premium/55">{shortDate(b.starts_at)}</p>}
       </div>
       <div className="min-w-0 flex-1 cursor-pointer space-y-1 rounded-lg transition-premium hover:bg-secondary/30" onClick={() => onEdit(b)} title="Tocá para editar el turno">
@@ -157,17 +218,24 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, compact 
             {b.professional && <>Profesional: {b.professional}</>}
           </p>
         )}
-        <p className="text-sm text-premium">
-          {b.discount > 0 && <span className="mr-1 text-premium/45 line-through">{formatARS(b.price)}</span>}
-          <strong className="font-semibold">{b.final_price > 0 ? formatARS(b.final_price) : "Sin precio"}</strong>
-          {b.promo_title && <span className="text-primary"> · {b.promo_title}</span>}
-          {b.final_price > 0 && (
-            <>
-              <span className="text-premium/60"> · Pagado {formatARS(b.paid)}</span>
-              <span className={b.balance > 0 ? "font-medium text-primary" : "text-premium/60"}> · Resta {formatARS(b.balance)}</span>
-            </>
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-premium">
+          {b.discount > 0 && <span className="text-premium/45 line-through">{formatARS(b.price)}</span>}
+          {onQuick ? (
+            <QuickMoney label="Precio" value={b.final_price} strong empty="cargar precio" onSave={(n) => onQuick(b, b.discount > 0 ? { finalPrice: n } : { price: n, finalPrice: n })} />
+          ) : (
+            <strong className="font-semibold">{b.final_price > 0 ? formatARS(b.final_price) : "Sin precio"}</strong>
           )}
-          {b.deposit > 0 && <span className="text-premium/50"> · Seña pedida {formatARS(b.deposit)}</span>}
+          {b.promo_title && <span className="text-primary">· {b.promo_title}</span>}
+          <span className="text-premium/40">·</span>
+          {onQuick ? (
+            <QuickMoney label="Seña" value={b.deposit} empty="sin definir" onSave={(n) => onQuick(b, { deposit: n })} />
+          ) : (
+            <span className="text-premium/60">Seña {b.deposit > 0 ? formatARS(b.deposit) : "sin definir"}</span>
+          )}
+          <span className="text-premium/40">·</span>
+          <span className="text-premium/70">Pagado {formatARS(b.paid)}</span>
+          <span className="text-premium/40">·</span>
+          <span className={b.balance > 0 ? "font-medium text-primary" : "text-premium/60"}>Resta {formatARS(b.balance)}</span>
         </p>
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           <span className={`${chip} ${st.cls}`}>{st.label}</span>
@@ -181,7 +249,7 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, compact 
         {b.notes && <p className="text-xs text-premium/60">Obs.: {b.notes}</p>}
       </div>
       <div className="flex shrink-0 flex-wrap gap-1.5 lg:max-w-[260px] lg:justify-end">
-        {b.state !== "cancelled" && b.balance > 0 && <button onClick={() => onPay(b)} className={btnSmall}><Wallet className="h-3.5 w-3.5" /> Registrar pago</button>}
+        {b.state !== "cancelled" && b.state !== "expired" && <button onClick={() => onPay(b)} className={btnSmall}><Wallet className="h-3.5 w-3.5" /> {b.paid === 0 ? "Registrar seña" : "Registrar pago"}</button>}
         <button onClick={() => onEdit(b)} className={`${btnSmall} border-primary/30 text-primary`}>Editar</button>
         {b.has_receipt && <a href={`/api/admin/bookings/${b.id}/comprobante`} target="_blank" rel="noreferrer" className={btnSmall}>Comprobante</a>}
         {(b.state === "reserved" || b.state === "pending_review" || b.state === "conflict" || b.state === "expired") && (
@@ -237,6 +305,21 @@ export function useAppointmentActions(flash: Flash, reload: () => void) {
     }
   }
 
+  // edición rápida desde la tarjeta (duración, precio, seña): guarda al instante y queda en el historial
+  const quick = async (b: AgendaItem, patch: Record<string, unknown>, allowOverlap = false) => {
+    try {
+      await api("/api/admin/bookings", { method: "PATCH", body: JSON.stringify({ id: b.id, ...patch, allowOverlap }) })
+      flash("Turno actualizado")
+      reload()
+    } catch (e) {
+      if (e instanceof ApiError && e.message === "horario_ocupado") {
+        if (confirm(`Con esa duración se superpone con ${(e.data.with as string[]).join(", ")}. ¿Guardarlo igual?`)) return quick(b, patch, true)
+        return
+      }
+      flash(e instanceof ApiError && e.message === "sin_permiso" ? "Tu usuario no tiene permiso para esto" : "No se pudo actualizar", true)
+    }
+  }
+
   const dialogs = (
     <>
       {editing && (
@@ -272,6 +355,7 @@ export function useAppointmentActions(flash: Flash, reload: () => void) {
     pay: (b: AgendaItem) => setPaying({ booking: b }),
     payPatient: (patient: { id: number; name: string }) => setPaying({ patient }),
     changeStatus,
+    quick,
     dialogs,
   }
 }
@@ -454,6 +538,11 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
           <label className={`${lbl} col-span-2`}>Zonas a tratar<input value={f.zones} onChange={(e) => set({ zones: e.target.value })} className={`${field} mt-1`} placeholder="Piernas completas + cavado + axilas" /></label>
           <label className={lbl}>Día y hora<input type="datetime-local" step={300} value={f.start} onChange={(e) => set({ start: e.target.value })} className={`${field} mt-1`} /></label>
           <label className={lbl}>Duración (min)<input type="number" min={5} step={5} value={f.durationMin} onChange={(e) => set({ durationMin: Number(e.target.value) })} className={`${field} mt-1`} /></label>
+          <div className="col-span-2 -mt-1 flex flex-wrap gap-1.5">
+            {[15, 30, 45, 60, 90].map((m) => (
+              <button key={m} onClick={() => set({ durationMin: m })} className={`h-7 rounded-full border px-2.5 text-xs ${f.durationMin === m ? "border-primary bg-primary text-primary-foreground" : "border-premium bg-white text-premium hover:bg-secondary"}`}>{m} min</button>
+            ))}
+          </div>
           {slots && (
             <div className="col-span-2">
               <p className="text-xs text-premium/55">{slots.length ? "Horarios libres de esa jornada:" : "No hay horarios libres cargados ese día (podés agendar igual)."}</p>
@@ -794,7 +883,7 @@ export function AgendaView({ flash, onPatient }: { flash: Flash; onPatient: (id:
           <div key={d} className={panel}>
             <p className="font-medium text-premium">{formatDay(d)} <span className="text-sm font-normal text-premium/50">· {list.length} {list.length === 1 ? "turno" : "turnos"}</span></p>
             <ul className="mt-1 divide-y divide-border">
-              {list.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} />)}
+              {list.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} onQuick={actions.quick} />)}
             </ul>
           </div>
         ))
@@ -878,7 +967,7 @@ export function DashboardView({ flash, onPatient, go }: { flash: Flash; onPatien
           <p className="mt-2 text-sm text-premium/60">No hay turnos hoy.</p>
         ) : (
           <ul className="mt-1 divide-y divide-border">
-            {d.today.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} />)}
+            {d.today.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} onQuick={actions.quick} />)}
           </ul>
         )}
       </div>
@@ -1130,7 +1219,7 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
             <div>
               <p className="text-sm font-medium text-premium">Próximos</p>
               <ul className="divide-y divide-border">
-                {upcoming.map((b) => <AppointmentRow key={b.id} b={b} compact onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} />)}
+                {upcoming.map((b) => <AppointmentRow key={b.id} b={b} compact onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onQuick={actions.quick} />)}
               </ul>
             </div>
           )}
@@ -1143,7 +1232,7 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
                 {past.map((b) => (
                   <Fragment key={b.id}>
                     {sessionNumber.has(b.id) && <li className="pt-2 text-xs font-medium text-primary">Sesión n.º {sessionNumber.get(b.id)}</li>}
-                    <AppointmentRow b={b} compact onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} />
+                    <AppointmentRow b={b} compact onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onQuick={actions.quick} />
                   </Fragment>
                 ))}
               </ul>
