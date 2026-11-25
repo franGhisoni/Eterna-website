@@ -1,10 +1,10 @@
 "use client"
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, CalendarPlus, ChevronLeft, ChevronRight, Download, History, Plus, Save, Search, Trash2, UserPlus, Wallet, X } from "lucide-react"
+import { AlertTriangle, CalendarPlus, Users, CheckCircle2, ChevronLeft, ChevronRight, Download, History, MessageCircle, Pencil, Plus, Save, Search, Trash2, UserPlus, UserRound, Wallet, X, XCircle } from "lucide-react"
 import { addDays, formatARS, formatDay, todayAR, weekdayOf } from "@/lib/time"
-import { PeriodPanel } from "./management"
-import { api, ApiError, btnGhost, btnIcon, btnPrimary, btnSmall, chip, field, fieldInline, fromLocalInput, hhmm, lbl, panel, shortDate, shortDateTime, toLocalInput, type Flash } from "./ui"
+import { AlertItems, PeriodPanel, useAdminAlerts } from "./management"
+import { ActionMenu, api, ApiError, Badge, btnGhost, btnIcon, btnPrimary, btnSmall, Card, chip, Drawer, Empty, field, fieldInline, fromLocalInput, hhmm, lbl, Loading, PageHeader, panel, Segmented, shortDate, Spinner, shortDateTime, Stat, tableHead, toLocalInput, TONE, type Flash, type MenuItem, type Tone } from "./ui"
 
 /* ───────────── Tipos compartidos ───────────── */
 
@@ -64,6 +64,7 @@ export type PatientSummary = {
   last_session: string | null
   billed: number
   paid: number
+  deposits_unrecorded?: number
   balance: number
 }
 
@@ -71,28 +72,28 @@ type Payment = { id: number; booking_id: string | null; patient_id: number | nul
 
 /* ───────────── Etiquetas ───────────── */
 
-export const STATUS: Record<string, { label: string; cls: string }> = {
-  reserved: { label: "Reservado", cls: "bg-violet-50 text-violet-700 border-violet-200" },
-  pending_payment: { label: "Pendiente de seña", cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  pending_review: { label: "Comprobante a revisar", cls: "bg-sky-50 text-sky-700 border-sky-200" },
-  confirmed: { label: "Confirmado", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  done: { label: "Realizado", cls: "bg-teal-50 text-teal-700 border-teal-200" },
-  no_show: { label: "Ausente", cls: "bg-orange-50 text-orange-700 border-orange-200" },
-  cancelled: { label: "Cancelado", cls: "bg-stone-100 text-stone-500 border-stone-200" },
-  expired: { label: "Seña vencida", cls: "bg-stone-100 text-stone-500 border-stone-200" },
-  conflict: { label: "Pagado · revisar", cls: "bg-red-50 text-red-700 border-red-200" },
+export const STATUS: Record<string, { label: string; tone: Tone; cls: string }> = {
+  reserved: { label: "Reservado", tone: "accent", cls: TONE.accent },
+  pending_payment: { label: "Pendiente de seña", tone: "warning", cls: TONE.warning },
+  pending_review: { label: "Comprobante a revisar", tone: "info", cls: TONE.info },
+  confirmed: { label: "Confirmado", tone: "success", cls: TONE.success },
+  done: { label: "Realizado", tone: "neutral", cls: TONE.neutral },
+  no_show: { label: "Ausente", tone: "warning", cls: TONE.warning },
+  cancelled: { label: "Cancelado", tone: "neutral", cls: TONE.neutral },
+  expired: { label: "Seña vencida", tone: "neutral", cls: TONE.neutral },
+  conflict: { label: "Pagado · revisar", tone: "danger", cls: TONE.danger },
 }
 
-export const PAY: Record<AgendaItem["pay_status"], { label: string; cls: string }> = {
-  sin_cargo: { label: "Sin cargo", cls: "bg-stone-50 text-stone-500 border-stone-200" },
-  sin_sena: { label: "Sin pagos", cls: "bg-stone-50 text-stone-600 border-stone-200" },
-  sena_pendiente: { label: "Seña pendiente", cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  sena_abonada: { label: "Seña abonada", cls: "bg-sky-50 text-sky-700 border-sky-200" },
-  pago_parcial: { label: "Pago parcial", cls: "bg-sky-50 text-sky-700 border-sky-200" },
-  pagado: { label: "Pagado", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+export const PAY: Record<AgendaItem["pay_status"], { label: string; tone: Tone; cls: string }> = {
+  sin_cargo: { label: "Sin precio", tone: "neutral", cls: TONE.neutral },
+  sin_sena: { label: "Sin pagos", tone: "neutral", cls: TONE.neutral },
+  sena_pendiente: { label: "Seña pendiente", tone: "warning", cls: TONE.warning },
+  sena_abonada: { label: "Seña abonada", tone: "info", cls: TONE.info },
+  pago_parcial: { label: "Pago parcial", tone: "info", cls: TONE.info },
+  pagado: { label: "Pagado", tone: "success", cls: TONE.success },
 }
 
-const SOURCE: Record<string, string> = { web: "Web", chat: "Chatbot", admin: "Administrador", paciente: "Ficha del paciente" }
+const SOURCE: Record<string, string> = { web: "Web", chat: "Chatbot", admin: "Administración", paciente: "Ficha del paciente" }
 const ACTIVE = ["reserved", "pending_payment", "pending_review", "confirmed", "conflict"]
 
 /* ───────────── Catálogo (servicios, promos, medios de pago) ───────────── */
@@ -126,25 +127,28 @@ const promoActiveOn = (p: Promo, day: string) => p.active && (!p.starts_on || p.
 
 const DURATIONS = [15, 20, 30, 40, 45, 60, 75, 90, 120]
 
-/** Importe editable en el lugar: se toca, se escribe y se guarda con Enter o al salir. */
-function QuickMoney({ label, value, onSave, strong, empty }: { label?: string; value: number; onSave: (n: number) => void; strong?: boolean; empty?: string }) {
+/** Importe editable en el lugar: se toca, se escribe y se guarda con Enter o al salir (Escape cancela). */
+function QuickMoney({ label, value, onSave, empty, emphasis }: { label: string; value: number; onSave?: (n: number) => void; empty?: string; emphasis?: "strong" | "due" }) {
   const [editing, setEditing] = useState(false)
   const [v, setV] = useState(String(value))
   useEffect(() => setV(String(value)), [value])
   const commit = () => {
     setEditing(false)
     const n = Math.round(Number(v))
-    if (Number.isFinite(n) && n >= 0 && n !== value) onSave(n)
+    if (onSave && Number.isFinite(n) && n >= 0 && n !== value) onSave(n)
     else setV(String(value))
   }
-  if (editing)
-    return (
-      <span className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-        {label && <span className="text-premium/60">{label}</span>}
+  const valueCls = `text-sm tabular-nums ${emphasis === "strong" ? "font-semibold text-ink" : emphasis === "due" ? (value > 0 ? "font-semibold text-primary" : "font-medium text-ink-2") : "text-ink"}`
+  return (
+    <div className="min-w-0" onClick={(e) => onSave && e.stopPropagation()}>
+      <p className="text-[11px] font-medium text-ink-3">{label}</p>
+      {editing ? (
         <input
           autoFocus
           type="number"
           min={0}
+          inputMode="numeric"
+          aria-label={label}
           value={v}
           onChange={(e) => setV(e.target.value)}
           onBlur={commit}
@@ -152,25 +156,30 @@ function QuickMoney({ label, value, onSave, strong, empty }: { label?: string; v
             if (e.key === "Enter") commit()
             if (e.key === "Escape") (setEditing(false), setV(String(value)))
           }}
-          className="h-7 w-24 rounded-md border border-primary/40 bg-white px-1.5 text-sm"
+          className="mt-0.5 h-7 w-full max-w-[7rem] rounded-md border border-primary bg-white px-1.5 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/15"
         />
-      </span>
-    )
-  return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation()
-        setEditing(true)
-      }}
-      title="Tocá para cambiarlo"
-      className="rounded border-b border-dashed border-premium/40 hover:border-primary hover:text-primary"
-    >
-      {label && <span className="text-premium/60">{label} </span>}
-      {value > 0 || !empty ? <span className={strong ? "font-semibold" : ""}>{formatARS(value)}</span> : <span className="text-primary">{empty}</span>}
-    </button>
+      ) : onSave ? (
+        <button
+          onClick={() => setEditing(true)}
+          title={`Cambiar ${label.toLowerCase()}`}
+          aria-label={`${label}: ${value > 0 ? formatARS(value) : empty ?? formatARS(0)}. Tocá para cambiarlo`}
+          className={`-mx-1 mt-0.5 rounded px-1 text-left decoration-line-strong decoration-dashed underline-offset-4 hover:bg-surface hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 ${valueCls}`}
+        >
+          {value > 0 || !empty ? formatARS(value) : <span className="font-medium text-primary">{empty}</span>}
+        </button>
+      ) : (
+        <p className={`mt-0.5 ${valueCls}`}>{value > 0 || !empty ? formatARS(value) : empty}</p>
+      )}
+    </div>
   )
 }
 
+const waNumber = (phone: string) => phone.replace(/\D/g, "").replace(/^(?!54)/, "549")
+
+/**
+ * Un turno en la agenda. Jerarquía: horario → paciente y servicio → dinero → estado → acciones.
+ * La acción más probable queda a la vista; el resto va en el menú «Más acciones».
+ */
 export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick, compact }: {
   b: AgendaItem
   onEdit: (b: AgendaItem) => void
@@ -182,98 +191,100 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
 }) {
   const st = STATUS[b.state] ?? STATUS.confirmed
   const active = ACTIVE.includes(b.state)
+  const closed = b.state === "cancelled" || b.state === "expired"
   const minutes = Math.round((new Date(b.ends_at).getTime() - new Date(b.starts_at).getTime()) / 60_000)
+  const soon = new Date(b.starts_at) <= new Date(Date.now() + 12 * 3600_000)
+  const needsConfirm = ["reserved", "pending_review", "conflict", "expired"].includes(b.state)
+  const payLabel = b.deposit_unrecorded > 0 ? "Registrar seña" : "Registrar pago"
+
+  // acción principal: la que más probablemente se necesita ahora
+  const primary: { label: string; run: () => void; icon?: React.ReactNode } | null = closed
+    ? null
+    : active && soon
+      ? { label: "Realizado", run: () => onStatus(b, "done"), icon: <CheckCircle2 /> }
+      : b.balance > 0 || b.deposit_unrecorded > 0
+        ? { label: payLabel, run: () => onPay(b), icon: <Wallet /> }
+        : needsConfirm
+          ? { label: "Confirmar", run: () => onStatus(b, "confirmed") }
+          : null
+
+  const menu: MenuItem[] = [
+    { label: payLabel, onSelect: () => onPay(b), icon: <Wallet />, hidden: closed || primary?.label === payLabel },
+    { label: "Confirmar turno", onSelect: () => onStatus(b, "confirmed"), hidden: !needsConfirm || primary?.label === "Confirmar" },
+    { label: "Marcar como realizado", onSelect: () => onStatus(b, "done"), hidden: !active || primary?.label === "Realizado" },
+    { label: "Marcar ausente", onSelect: () => onStatus(b, "no_show"), hidden: !active },
+    { label: "Enviar recordatorio por WhatsApp", icon: <MessageCircle />, hidden: !active || !b.phone, href: `https://wa.me/${waNumber(b.phone)}?text=${encodeURIComponent(`Hola ${b.name.split(" ")[0]}! Te recordamos tu turno de ${b.service_name} el ${shortDateTime(b.starts_at)} hs en Eterna.`)}` },
+    { label: "Ver comprobante", hidden: !b.has_receipt, href: `/api/admin/bookings/${b.id}/comprobante` },
+    { label: "Ver ficha del paciente", icon: <UserRound />, hidden: !b.patient_id || !onPatient, onSelect: () => onPatient?.(b.patient_id!) },
+    { label: "Cancelar turno", danger: true, icon: <XCircle />, hidden: closed, onSelect: () => onStatus(b, "cancelled") },
+  ]
+
   return (
-    <li className="flex flex-col gap-3 py-3.5 lg:flex-row lg:items-start">
-      <div className="w-24 shrink-0">
-        <p className="font-serif text-lg font-semibold leading-none text-premium">{hhmm(b.starts_at)}</p>
-        <p className="mt-1 text-xs text-premium/55">a {hhmm(b.ends_at)}</p>
-        {onQuick ? (
+    <li className={`group grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 py-4 first:pt-1 last:pb-1 lg:grid-cols-[76px_minmax(0,1fr)_minmax(300px,360px)_236px] lg:items-start ${closed ? "opacity-70" : ""}`}>
+      {/* horario */}
+      <div className="w-[76px]">
+        <p className="font-serif text-xl font-semibold leading-none tabular-nums text-ink">{hhmm(b.starts_at)}</p>
+        <p className="mt-1 text-xs tabular-nums text-ink-3">hasta {hhmm(b.ends_at)}</p>
+        {compact && <p className="mt-0.5 text-xs text-ink-3">{shortDate(b.starts_at)}</p>}
+        {onQuick && !closed ? (
           <select
             value={minutes}
             onChange={(e) => onQuick(b, { durationMin: Number(e.target.value) })}
-            className="mt-1 h-7 rounded-md border border-premium bg-white px-1 text-xs text-premium"
-            aria-label="Duración"
-            title="Duración del turno"
+            className="mt-1.5 h-7 w-full rounded-md border border-line bg-white px-1 text-xs text-ink-2 hover:border-line-strong focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
+            aria-label={`Duración del turno de ${b.name}`}
           >
             {Array.from(new Set([...DURATIONS, minutes])).sort((x, y) => x - y).map((m) => <option key={m} value={m}>{m} min</option>)}
           </select>
         ) : (
-          <p className="text-xs text-premium/55">{minutes} min</p>
+          <p className="text-xs text-ink-3">{minutes} min</p>
         )}
-        {compact && <p className="mt-1 text-xs text-premium/55">{shortDate(b.starts_at)}</p>}
       </div>
-      <div className="min-w-0 flex-1 cursor-pointer space-y-1 rounded-lg transition-premium hover:bg-secondary/30" onClick={() => onEdit(b)} title="Tocá para editar el turno">
-        <p className="font-medium text-premium">
+
+      {/* paciente, servicio y estado */}
+      <div className="min-w-0">
+        <p className="truncate text-[0.9375rem] font-semibold text-ink">
           {b.patient_id && onPatient ? (
-            <button onClick={(e) => { e.stopPropagation(); onPatient(b.patient_id!) }} className="hover:text-primary hover:underline">{b.name}</button>
+            <button onClick={() => onPatient(b.patient_id!)} className="rounded hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45">{b.name}</button>
           ) : (
             b.name
           )}
-          <span className="font-normal text-premium/60"> · {b.service_name}</span>
         </p>
-        {(b.zones || b.professional) && (
-          <p className="text-sm text-premium/70">
-            {b.zones && <>Zonas: {b.zones}</>}
-            {b.zones && b.professional && " · "}
-            {b.professional && <>Profesional: {b.professional}</>}
-          </p>
-        )}
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-premium">
-          {b.discount > 0 && <span className="text-premium/45 line-through">{formatARS(b.price)}</span>}
-          {onQuick ? (
-            <QuickMoney label="Precio" value={b.final_price} strong empty="cargar precio" onSave={(n) => onQuick(b, b.discount > 0 ? { finalPrice: n } : { price: n, finalPrice: n })} />
-          ) : (
-            <strong className="font-semibold">{b.final_price > 0 ? formatARS(b.final_price) : "Sin precio"}</strong>
-          )}
-          {b.promo_title && <span className="text-primary">· {b.promo_title}</span>}
-          <span className="text-premium/40">·</span>
-          {onQuick ? (
-            <QuickMoney label="Seña" value={b.deposit} empty="sin definir" onSave={(n) => onQuick(b, { deposit: n })} />
-          ) : (
-            <span className="text-premium/60">Seña {b.deposit > 0 ? formatARS(b.deposit) : "sin definir"}</span>
-          )}
-          <span className="text-premium/40">·</span>
-          <span className="text-premium/70">Pagado {formatARS(b.paid + b.deposit_unrecorded)}</span>
-          <span className="text-premium/40">·</span>
-          <span className={b.balance > 0 ? "font-medium text-primary" : "text-premium/60"}>Resta {formatARS(b.balance)}</span>
+        <p className="text-sm text-ink-2 lg:truncate">{b.service_name}</p>
+        <p className="mt-0.5 truncate text-xs text-ink-3">
+          {[b.zones, b.professional && `con ${b.professional}`, SOURCE[b.source] ?? b.source].filter(Boolean).join(" · ")}
         </p>
-        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-          <span className={`${chip} ${st.cls}`}>{st.label}</span>
-          <span className={`${chip} ${PAY[b.pay_status].cls}`}>{PAY[b.pay_status].label}</span>
-          {b.deposit_unrecorded > 0 && <span className="text-xs text-premium/50" title="La seña se abona al reservar. Registrala para dejar asentado el medio y la fecha.">seña sin registrar el medio</span>}
-          {b.rescheduled > 0 && <span className={`${chip} border-violet-200 bg-violet-50 text-violet-700`}>Reprogramado</span>}
-          <span className="text-xs text-premium/50">Origen: {SOURCE[b.source] ?? b.source}</span>
-          {b.phone && (
-            <a onClick={(e) => e.stopPropagation()} className="text-xs text-premium/50 hover:text-primary" href={`https://wa.me/${b.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">· {b.phone}</a>
-          )}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <Badge tone={st.tone}>{st.label}</Badge>
+          {!closed && <Badge tone={PAY[b.pay_status].tone}>{PAY[b.pay_status].label}</Badge>}
+          {b.rescheduled > 0 && <Badge tone="accent">Reprogramado</Badge>}
+          {b.promo_title && <Badge tone="neutral">{b.promo_title}</Badge>}
         </div>
-        {b.notes && <p className="text-xs text-premium/60">Obs.: {b.notes}</p>}
+        {b.notes && <p className="mt-1.5 line-clamp-2 text-xs text-ink-2" title={b.notes}><span className="font-medium">Obs.:</span> {b.notes}</p>}
       </div>
-      <div className="flex shrink-0 flex-wrap gap-1.5 lg:max-w-[260px] lg:justify-end">
-        {b.state !== "cancelled" && b.state !== "expired" && <button onClick={() => onPay(b)} className={btnSmall}><Wallet className="h-3.5 w-3.5" /> {b.deposit_unrecorded > 0 ? "Registrar seña" : "Registrar pago"}</button>}
-        <button onClick={() => onEdit(b)} className={`${btnSmall} border-primary/30 text-primary`}>Editar</button>
-        {b.has_receipt && <a href={`/api/admin/bookings/${b.id}/comprobante`} target="_blank" rel="noreferrer" className={btnSmall}>Comprobante</a>}
-        {(b.state === "reserved" || b.state === "pending_review" || b.state === "conflict" || b.state === "expired") && (
-          <button onClick={() => onStatus(b, "confirmed")} className={btnSmall}>Confirmar</button>
+
+      {/* dinero: siempre en el mismo lugar y orden */}
+      <div className="col-span-2 grid grid-cols-4 gap-2 rounded-lg bg-surface/70 px-3 py-2 lg:col-span-1">
+        <div>
+          <QuickMoney label="Precio" value={b.final_price} emphasis="strong" empty="Cargar" onSave={onQuick && !closed ? (n) => onQuick(b, b.discount > 0 ? { finalPrice: n } : { price: n, finalPrice: n }) : undefined} />
+          {b.discount > 0 && <p className="text-[11px] tabular-nums text-ink-3 line-through" aria-label={`Precio sin descuento ${formatARS(b.price)}`}>{formatARS(b.price)}</p>}
+        </div>
+        <QuickMoney label="Seña" value={b.deposit} empty="Definir" onSave={onQuick && !closed ? (n) => onQuick(b, { deposit: n }) : undefined} />
+        <QuickMoney label="Pagado" value={b.paid + b.deposit_unrecorded} />
+        <QuickMoney label="Resta" value={b.balance} emphasis="due" />
+      </div>
+
+      {/* acciones */}
+      <div className="col-span-2 flex items-center justify-end gap-1.5 lg:col-span-1 lg:pt-0.5">
+        {primary && (
+          <button onClick={primary.run} className={`${btnSmall} ${primary.label === "Realizado" ? "" : "border-primary/25 text-primary"}`}>
+            {primary.icon}
+            {primary.label}
+          </button>
         )}
-        {active && new Date(b.starts_at) <= new Date(Date.now() + 12 * 3600_000) && (
-          <>
-            <button onClick={() => onStatus(b, "done")} className={btnSmall}>Realizado</button>
-            <button onClick={() => onStatus(b, "no_show")} className={btnSmall}>Ausente</button>
-          </>
-        )}
-        {active && b.phone && (
-          <a
-            className={btnSmall}
-            target="_blank"
-            rel="noreferrer"
-            href={`https://wa.me/${b.phone.replace(/\D/g, "").replace(/^(?!54)/, "549")}?text=${encodeURIComponent(`Hola ${b.name.split(" ")[0]}! Te recordamos tu turno de ${b.service_name} el ${shortDateTime(b.starts_at)} hs en Eterna.${b.balance > 0 && b.paid === 0 && b.deposit > 0 ? " Recordá abonar la seña para confirmarlo." : ""}`)}`}
-          >
-            Recordatorio
-          </a>
-        )}
-        {b.state !== "cancelled" && b.state !== "expired" && <button onClick={() => onStatus(b, "cancelled")} className={`${btnSmall} text-destructive`}>Cancelar</button>}
+        <button onClick={() => onEdit(b)} className={btnSmall} aria-label={`Editar turno de ${b.name}`}>
+          <Pencil /> Editar
+        </button>
+        <ActionMenu items={menu} label={`Más acciones para el turno de ${b.name}`} />
       </div>
     </li>
   )
@@ -364,20 +375,6 @@ export function useAppointmentActions(flash: Flash, reload: () => void) {
 
 /* ───────────── Crear / editar turno ───────────── */
 
-function Drawer({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
-  return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/25" onClick={onClose}>
-      <div className={`h-full w-full ${wide ? "max-w-3xl" : "max-w-lg"} overflow-y-auto bg-white p-5 shadow-premium-lg sm:p-6`} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
-        <div className="flex items-center justify-between gap-3">
-          <p className="font-serif text-xl font-bold text-premium">{title}</p>
-          <button onClick={onClose} className={btnIcon} aria-label="Cerrar"><X className="h-4 w-4" /></button>
-        </div>
-        {children}
-      </div>
-    </div>
-  )
-}
-
 function PatientPicker({ value, onChange }: { value: { id: number; name: string } | null; onChange: (p: { id: number; name: string } | null, draft?: { name: string; phone: string }) => void }) {
   const [q, setQ] = useState("")
   const [results, setResults] = useState<Array<{ id: number; name: string; phone: string }>>([])
@@ -390,33 +387,33 @@ function PatientPicker({ value, onChange }: { value: { id: number; name: string 
   }, [q])
   if (value)
     return (
-      <div className="flex items-center justify-between rounded-lg border border-premium bg-secondary/40 px-3 py-2">
-        <p className="text-sm font-medium text-premium">{value.name}</p>
+      <div className="flex items-center justify-between rounded-lg border border-line bg-surface-2 px-3 py-2">
+        <p className="text-sm font-medium text-ink">{value.name}</p>
         <button onClick={() => onChange(null)} className="text-xs text-primary hover:underline">Cambiar</button>
       </div>
     )
   if (creating)
     return (
-      <div className="grid grid-cols-2 gap-2 rounded-lg border border-premium p-3">
+      <div className="grid grid-cols-2 gap-2 rounded-lg border border-line p-3">
         <label className={`${lbl} col-span-2`}>Nombre y apellido<input value={draft.name} onChange={(e) => { const d = { ...draft, name: e.target.value }; setDraft(d); onChange(null, d) }} className={`${field} mt-1`} /></label>
         <label className={`${lbl} col-span-2`}>WhatsApp<input value={draft.phone} onChange={(e) => { const d = { ...draft, phone: e.target.value }; setDraft(d); onChange(null, d) }} className={`${field} mt-1`} placeholder="11 2345 6789" /></label>
-        <p className="col-span-2 text-xs text-premium/55">Si el teléfono ya existe, el turno se asocia a esa ficha (no se duplica).</p>
+        <p className="col-span-2 text-xs text-ink-3">Si el teléfono ya existe, el turno se asocia a esa ficha (no se duplica).</p>
         <button onClick={() => { setCreating(false); onChange(null) }} className="col-span-2 text-left text-xs text-primary hover:underline">Buscar un paciente existente</button>
       </div>
     )
   return (
     <div className="space-y-2">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-premium/40" />
+        <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-ink-3" />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre o teléfono…" className={`${field} pl-9`} autoFocus />
       </div>
       {results.length > 0 && (
-        <ul className="max-h-48 divide-y divide-border overflow-y-auto rounded-lg border border-premium">
+        <ul className="max-h-48 divide-y divide-border overflow-y-auto rounded-lg border border-line">
           {results.map((r) => (
             <li key={r.id}>
-              <button onClick={() => onChange({ id: r.id, name: r.name })} className="flex w-full justify-between px-3 py-2 text-left text-sm hover:bg-secondary/50">
-                <span className="text-premium">{r.name}</span>
-                <span className="text-premium/50">{r.phone}</span>
+              <button onClick={() => onChange({ id: r.id, name: r.name })} className="flex w-full justify-between px-3 py-2 text-left text-sm hover:bg-surface">
+                <span className="text-ink">{r.name}</span>
+                <span className="text-ink-3">{r.phone}</span>
               </button>
             </li>
           ))}
@@ -522,11 +519,21 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
   }
 
   return (
-    <Drawer title={editing ? "Editar turno" : patient ? `Agregar sesión · ${patient.name}` : "Nuevo turno"} onClose={onClose}>
-      <div className="mt-5 space-y-4">
+    <Drawer
+      title={editing ? "Editar turno" : patient ? `Agregar sesión · ${patient.name}` : "Nuevo turno"}
+      subtitle={editing ? `${booking!.name} · ${shortDateTime(booking!.starts_at)}` : undefined}
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={() => save()} disabled={busy} className={btnPrimary}>{busy ? <Spinner /> : <Save />} {editing ? "Guardar cambios" : "Crear turno"}</button>
+          <button onClick={onClose} className={btnGhost}>Cancelar</button>
+        </>
+      }
+    >
+      <div className="space-y-4">
         <div>
           <p className={`${lbl} mb-1`}>Paciente</p>
-          {editing ? <p className="text-sm font-medium text-premium">{booking!.name}</p> : <PatientPicker value={who} onChange={(p, d) => { setWho(p); setDraft(d) }} />}
+          {editing ? <p className="text-sm font-medium text-ink">{booking!.name}</p> : <PatientPicker value={who} onChange={(p, d) => { setWho(p); setDraft(d) }} />}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <label className={`${lbl} col-span-2`}>Tratamiento
@@ -542,15 +549,15 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
           <label className={lbl}>Duración (min)<input type="number" min={5} step={5} value={f.durationMin} onChange={(e) => set({ durationMin: Number(e.target.value) })} className={`${field} mt-1`} /></label>
           <div className="col-span-2 -mt-1 flex flex-wrap gap-1.5">
             {[15, 30, 45, 60, 90].map((m) => (
-              <button key={m} onClick={() => set({ durationMin: m })} className={`h-7 rounded-full border px-2.5 text-xs ${f.durationMin === m ? "border-primary bg-primary text-primary-foreground" : "border-premium bg-white text-premium hover:bg-secondary"}`}>{m} min</button>
+              <button key={m} onClick={() => set({ durationMin: m })} className={`h-7 rounded-full border px-2.5 text-xs ${f.durationMin === m ? "border-primary bg-primary text-primary-foreground" : "border-line bg-white text-ink hover:bg-surface"}`}>{m} min</button>
             ))}
           </div>
           {slots && (
             <div className="col-span-2">
-              <p className="text-xs text-premium/55">{slots.length ? "Horarios libres de esa jornada:" : "No hay horarios libres cargados ese día (podés agendar igual)."}</p>
+              <p className="text-xs text-ink-3">{slots.length ? "Horarios libres de esa jornada:" : "No hay horarios libres cargados ese día (podés agendar igual)."}</p>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
                 {slots.slice(0, 24).map((s) => (
-                  <button key={s} onClick={() => set({ start: `${day}T${hhmm(s)}` })} className={`h-7 rounded-full border px-2.5 text-xs ${f.start.endsWith(hhmm(s)) ? "border-primary bg-primary text-primary-foreground" : "border-premium bg-white text-premium hover:bg-secondary"}`}>
+                  <button key={s} onClick={() => set({ start: `${day}T${hhmm(s)}` })} className={`h-7 rounded-full border px-2.5 text-xs ${f.start.endsWith(hhmm(s)) ? "border-primary bg-primary text-primary-foreground" : "border-line bg-white text-ink hover:bg-surface"}`}>
                     {hhmm(s)}
                   </button>
                 ))}
@@ -569,8 +576,8 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
           </label>
         </div>
 
-        <div className="rounded-xl border border-premium bg-premium-light/60 p-3">
-          <p className="text-sm font-medium text-premium">Precio y seña</p>
+        <div className="rounded-xl border border-line bg-surface p-3">
+          <p className="text-sm font-medium text-ink">Precio y seña</p>
           <div className="mt-2 grid grid-cols-2 gap-3">
             <label className={lbl}>Precio habitual<input type="number" min={0} value={f.price} onChange={(e) => set({ price: Number(e.target.value), finalPrice: "" })} className={`${field} mt-1`} /></label>
             <label className={lbl}>Promoción
@@ -585,7 +592,7 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
           {editing && booking!.promo_title && !booking!.promo_id && (
             <p className="mt-2 text-xs text-amber-700">Este turno tiene anotada la promo «{booking!.promo_title}». Si cambiás el precio o elegís otra promo, revisá el precio final.</p>
           )}
-          <p className="mt-2 text-xs text-premium/55">
+          <p className="mt-2 text-xs text-ink-3">
             El precio queda congelado en este turno: si después cambiás la lista de precios o la promoción, este turno conserva lo acordado.
             {catalog && catalog.depositPercent > 0 && ` Política de seña: ${catalog.depositPercent}%.`}
           </p>
@@ -594,10 +601,6 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
 
         <label className={`${lbl} block`}>Observaciones<textarea rows={3} value={f.notes} onChange={(e) => set({ notes: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
 
-        <div className="flex gap-2">
-          <button onClick={() => save()} disabled={busy} className={btnPrimary}><Save className="h-4 w-4" /> {editing ? "Guardar cambios" : "Crear turno"}</button>
-          <button onClick={onClose} className={btnGhost}>Cancelar</button>
-        </div>
         {editing && <BookingHistory id={booking!.id} />}
       </div>
     </Drawer>
@@ -634,11 +637,11 @@ function BookingPayments({ bookingId, flash }: { bookingId: string; flash: Flash
   if (list === null) return null
   return (
     <div className="mt-2 border-t border-border pt-2">
-      <p className="text-xs font-medium text-premium">Pagos de este turno {list.length === 0 && <span className="font-normal text-premium/55">(todavía ninguno; se cargan con «Registrar pago»)</span>}</p>
+      <p className="text-xs font-medium text-ink">Pagos de este turno {list.length === 0 && <span className="font-normal text-ink-3">(todavía ninguno; se cargan con «Registrar pago»)</span>}</p>
       <ul className="mt-1 space-y-1">
         {list.map((p) =>
           edit?.id === p.id ? (
-            <li key={p.id} className="grid grid-cols-2 gap-1.5 rounded-lg border border-premium bg-white p-2">
+            <li key={p.id} className="grid grid-cols-2 gap-1.5 rounded-lg border border-line bg-white p-2">
               <input type="number" min={1} value={edit.amount} onChange={(e) => setEdit({ ...edit, amount: e.target.value })} className={`${field} h-8`} aria-label="Importe" />
               <select value={edit.method} onChange={(e) => setEdit({ ...edit, method: e.target.value })} className={`${field} h-8`} aria-label="Medio">
                 {Array.from(new Set([...(catalog?.methods ?? []), edit.method])).map((m) => <option key={m}>{m}</option>)}
@@ -653,15 +656,15 @@ function BookingPayments({ bookingId, flash }: { bookingId: string; flash: Flash
               </div>
             </li>
           ) : (
-            <li key={p.id} className="flex items-center gap-2 text-xs text-premium/75">
-              <span className="flex-1">{shortDate(p.paid_at)} · {p.concept} · {p.method} · <strong className="text-premium">{formatARS(p.amount)}</strong></span>
+            <li key={p.id} className="flex items-center gap-2 text-xs text-ink-2">
+              <span className="flex-1">{shortDate(p.paid_at)} · {p.concept} · {p.method} · <strong className="text-ink">{formatARS(p.amount)}</strong></span>
               {p.origin === "manual" ? (
                 <>
                   <button onClick={() => setEdit({ id: p.id, amount: p.amount, method: p.method, concept: p.concept, paidAt: toLocalInput(p.paid_at) })} className="text-primary hover:underline">Corregir</button>
-                  <button onClick={() => annul(p)} className="text-destructive hover:underline">Anular</button>
+                  <button onClick={() => annul(p)} className="text-red-700 hover:underline">Anular</button>
                 </>
               ) : (
-                <span className="text-premium/40">automático</span>
+                <span className="text-ink-3">automático</span>
               )}
             </li>
           ),
@@ -689,9 +692,9 @@ function BookingHistory({ id }: { id: string }) {
   }
   return (
     <div className="border-t border-border pt-4">
-      <p className="flex items-center gap-1.5 text-sm font-medium text-premium"><History className="h-4 w-4" /> Historial del turno</p>
-      <ul className="mt-2 space-y-1 text-xs text-premium/70">
-        {history.map((h, i) => <li key={i}>{shortDateTime(h.created_at)} · {describe(h)} <span className="text-premium/40">({h.actor})</span></li>)}
+      <p className="flex items-center gap-1.5 text-sm font-medium text-ink"><History className="h-4 w-4" /> Historial del turno</p>
+      <ul className="mt-2 space-y-1 text-xs text-ink-2">
+        {history.map((h, i) => <li key={i}>{shortDateTime(h.created_at)} · {describe(h)} <span className="text-ink-3">({h.actor})</span></li>)}
       </ul>
     </div>
   )
@@ -733,17 +736,26 @@ export function PaymentDialog({ booking, patient, flash, onClose, onSaved }: {
   }
 
   return (
-    <Drawer title="Registrar pago" onClose={onClose}>
-      <div className="mt-5 space-y-4">
+    <Drawer
+      title="Registrar pago"
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={save} disabled={busy || !catalog} className={btnPrimary}>{busy ? <Spinner /> : <Save />} Registrar pago</button>
+          <button onClick={onClose} className={btnGhost}>Cancelar</button>
+        </>
+      }
+    >
+      <div className="space-y-4">
         {booking && (
-          <div className="rounded-xl border border-premium bg-premium-light/60 p-3 text-sm text-premium">
+          <div className="rounded-xl border border-line bg-surface p-3 text-sm text-ink">
             <p className="font-medium">{booking.name} · {booking.service_name}</p>
-            <p className="text-premium/65">{shortDateTime(booking.starts_at)}</p>
+            <p className="text-ink-2">{shortDateTime(booking.starts_at)}</p>
             <p className="mt-1">Precio {formatARS(booking.final_price)} · Seña {formatARS(booking.deposit)} · Pagado {formatARS(booking.paid + booking.deposit_unrecorded)} · <strong>Resta {formatARS(booking.balance)}</strong></p>
-            {registeringDeposit && <p className="mt-1 text-xs text-premium/60">La seña ya se considera abonada (se paga al reservar). Registrala para dejar asentado con qué medio y cuándo se pagó; el saldo no cambia.</p>}
+            {registeringDeposit && <p className="mt-1 text-xs text-ink-3">La seña ya se considera abonada (se paga al reservar). Registrala para dejar asentado con qué medio y cuándo se pagó; el saldo no cambia.</p>}
           </div>
         )}
-        {!booking && patient && <p className="text-sm text-premium">Pago a cuenta de <strong>{patient.name}</strong> (sin turno asociado).</p>}
+        {!booking && patient && <p className="text-sm text-ink">Pago a cuenta de <strong>{patient.name}</strong> (sin turno asociado).</p>}
         <div className="grid grid-cols-2 gap-3">
           <label className={lbl}>Importe<input type="number" min={1} value={f.amount} onChange={(e) => set({ amount: e.target.value })} className={`${field} mt-1`} autoFocus /></label>
           <label className={lbl}>Medio de pago
@@ -761,12 +773,8 @@ export function PaymentDialog({ booking, patient, flash, onClose, onSaved }: {
         </div>
         {booking && amount > 0 && (() => {
           const after = Math.max(0, booking.balance - Math.max(0, amount - booking.deposit_unrecorded))
-          return <p className="text-sm text-premium/70">Después de este pago resta: <strong className="text-premium">{formatARS(after)}</strong>{after === 0 && " · queda pagado"}</p>
+          return <p className="text-sm text-ink-2">Después de este pago resta: <strong className="text-ink">{formatARS(after)}</strong>{after === 0 && " · queda pagado"}</p>
         })()}
-        <div className="flex gap-2">
-          <button onClick={save} disabled={busy || !catalog} className={btnPrimary}><Save className="h-4 w-4" /> Registrar</button>
-          <button onClick={onClose} className={btnGhost}>Cancelar</button>
-        </div>
       </div>
     </Drawer>
   )
@@ -789,7 +797,7 @@ function rangeOf(kind: Range, anchor: string): { from: string; to: string; label
     const label = new Intl.DateTimeFormat("es-AR", { timeZone: "UTC", month: "long", year: "numeric" }).format(new Date(`${from}T12:00:00Z`))
     return { from, to, label: label.charAt(0).toUpperCase() + label.slice(1) }
   }
-  return { from: anchor, to: addDays(anchor, 90), label: "Próximos 90 días" }
+  return { from: anchor, to: addDays(anchor, 90), label: `Próximos 90 días desde el ${formatDay(anchor).toLowerCase()}` }
 }
 
 export function AgendaView({ flash, onPatient }: { flash: Flash; onPatient: (id: number) => void }) {
@@ -834,65 +842,90 @@ export function AgendaView({ flash, onPatient }: { flash: Flash; onPatient: (id:
     return Array.from(m)
   }, [visible])
   const pros = Array.from(new Set((items ?? []).map((b) => b.professional).filter(Boolean)))
-  const totals = visible.filter((b) => b.state !== "cancelled" && b.state !== "expired").reduce((a, b) => ({ sold: a.sold + b.final_price, paid: a.paid + b.paid, due: a.due + b.balance }), { sold: 0, paid: 0, due: 0 })
+  const totals = visible
+    .filter((b) => b.state !== "cancelled" && b.state !== "expired")
+    .reduce((a, b) => ({ sold: a.sold + b.final_price, paid: a.paid + b.paid + b.deposit_unrecorded, due: a.due + b.balance }), { sold: 0, paid: 0, due: 0 })
+  const isToday = anchor === todayAR()
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-serif text-2xl font-bold text-premium">Agenda</h1>
-          <p className="text-sm text-premium/60">Todos los turnos (web, chatbot, administración y fichas de pacientes) en un solo lugar.</p>
-        </div>
-        <button onClick={() => actions.create()} className={btnPrimary}><CalendarPlus className="h-4 w-4" /> Nuevo turno</button>
-      </div>
+    <section className="space-y-5">
+      <PageHeader
+        title="Agenda"
+        description={<span className="hidden sm:inline">Todos los turnos (web, chatbot, administración y fichas de pacientes) en un solo lugar.</span>}
+        actions={<button onClick={() => actions.create()} className={btnPrimary}><CalendarPlus /> Nuevo turno</button>}
+      />
 
-      <div className={`${panel} space-y-3 p-4 sm:p-4`}>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-lg border border-premium p-0.5">
-            {(["dia", "semana", "mes", "proximos"] as Range[]).map((k) => (
-              <button key={k} onClick={() => setKind(k)} className={`h-8 rounded-md px-3 text-xs ${kind === k ? "bg-primary text-primary-foreground" : "text-premium/70 hover:bg-secondary"}`}>
-                {{ dia: "Día", semana: "Semana", mes: "Mes", proximos: "Listado" }[k]}
-              </button>
-            ))}
+      <div className="rounded-xl border border-line bg-white shadow-card">
+        {/* período */}
+        <div className="flex flex-col gap-3 border-b border-line p-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => shift(-1)} className={`${btnIcon} h-9 w-9`} aria-label="Período anterior"><ChevronLeft /></button>
+            <button onClick={() => setAnchor(todayAR())} disabled={isToday} className={`${btnSmall} h-9 px-3`}>Hoy</button>
+            <button onClick={() => shift(1)} className={`${btnIcon} h-9 w-9`} aria-label="Período siguiente"><ChevronRight /></button>
+            <p className="ml-1 min-w-0 text-[0.9375rem] font-semibold text-ink" aria-live="polite">{r.label}</p>
           </div>
-          <button onClick={() => shift(-1)} className={`${btnIcon} h-9 w-9`} aria-label="Anterior"><ChevronLeft className="h-4 w-4" /></button>
-          <button onClick={() => setAnchor(todayAR())} className={`${btnSmall} h-9`}>Hoy</button>
-          <button onClick={() => shift(1)} className={`${btnIcon} h-9 w-9`} aria-label="Siguiente"><ChevronRight className="h-4 w-4" /></button>
-          <input type="date" value={anchor} onChange={(e) => e.target.value && setAnchor(e.target.value)} className={`${fieldInline} h-9 w-40`} aria-label="Ir a fecha" />
-          <p className="ml-1 font-medium text-premium">{r.label}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented label="Vista" value={kind} onChange={setKind} options={[["dia", "Día"], ["semana", "Semana"], ["mes", "Mes"], ["proximos", "Próximos"]]} />
+            <input type="date" value={anchor} onChange={(e) => e.target.value && setAnchor(e.target.value)} className={`${fieldInline} h-9 w-[9.5rem]`} aria-label="Ir a una fecha" />
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar paciente, tratamiento…" className={`${fieldInline} h-9 w-56`} />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${fieldInline} h-9`} aria-label="Estado">
-            <option value="activos">Activos</option>
+        {/* filtros */}
+        <div className="grid gap-2 p-3 sm:grid-cols-[minmax(0,1fr)_200px] sm:p-4 lg:grid-cols-[minmax(0,320px)_200px_220px_1fr] lg:items-center">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" aria-hidden />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar paciente o tratamiento" aria-label="Buscar en la agenda" className={`${field} h-9 pl-9`} type="search" />
+          </div>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${field} h-9`} aria-label="Filtrar por estado">
+            <option value="activos">Turnos activos</option>
             <option value="todos">Todos (incluye cancelados)</option>
             <option value="deuda">Con saldo pendiente</option>
             {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
-          {pros.length > 0 && (
-            <select value={pro} onChange={(e) => setPro(e.target.value)} className={`${fieldInline} h-9`} aria-label="Profesional">
+          {pros.length > 0 ? (
+            <select value={pro} onChange={(e) => setPro(e.target.value)} className={`${field} h-9`} aria-label="Filtrar por profesional">
               <option value="">Todas las profesionales</option>
               {pros.map((p) => <option key={p}>{p}</option>)}
             </select>
+          ) : (
+            <span className="hidden lg:block" />
           )}
+          <dl className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm sm:col-span-2 lg:col-span-1 lg:justify-end">
+            <div className="flex gap-1"><dt className="text-ink-3">Turnos</dt><dd className="font-medium tabular-nums text-ink">{visible.length}</dd></div>
+            <div className="flex gap-1"><dt className="text-ink-3">Vendido</dt><dd className="font-medium tabular-nums text-ink">{formatARS(totals.sold)}</dd></div>
+            <div className="flex gap-1"><dt className="text-ink-3">Cobrado</dt><dd className="font-medium tabular-nums text-ink">{formatARS(totals.paid)}</dd></div>
+            <div className="flex gap-1"><dt className="text-ink-3">Por cobrar</dt><dd className="font-semibold tabular-nums text-primary">{formatARS(totals.due)}</dd></div>
+          </dl>
         </div>
-        <p className="text-sm text-premium/70">
-          {visible.length} turnos · Vendido {formatARS(totals.sold)} · Cobrado {formatARS(totals.paid)} · <span className="font-medium text-primary">Por cobrar {formatARS(totals.due)}</span>
-        </p>
       </div>
 
       {items === null ? (
-        <p className="text-sm text-premium/60">Cargando…</p>
+        <Loading rows={4} />
       ) : byDay.length === 0 ? (
-        <div className={panel}><p className="text-sm text-premium/60">No hay turnos en este período.</p></div>
+        <Card>
+          <Empty
+            icon={<CalendarPlus />}
+            title={term || statusFilter !== "activos" || pro ? "Ningún turno coincide con los filtros" : "No hay turnos en este período"}
+            text={term || statusFilter !== "activos" || pro ? "Probá con otra búsqueda o limpiá los filtros." : "Podés agendar uno o moverte a otro período."}
+            action={
+              term || statusFilter !== "activos" || pro ? (
+                <button onClick={() => (setQ(""), setStatusFilter("activos"), setPro(""))} className={btnGhost}>Limpiar filtros</button>
+              ) : (
+                <button onClick={() => actions.create()} className={btnGhost}>Agendar un turno</button>
+              )
+            }
+          />
+        </Card>
       ) : (
         byDay.map(([d, list]) => (
-          <div key={d} className={panel}>
-            <p className="font-medium text-premium">{formatDay(d)} <span className="text-sm font-normal text-premium/50">· {list.length} {list.length === 1 ? "turno" : "turnos"}</span></p>
-            <ul className="mt-1 divide-y divide-border">
+          <section key={d} aria-label={formatDay(d)} className="rounded-xl border border-line bg-white shadow-card">
+            <h2 className="flex items-baseline gap-2 border-b border-line px-4 py-3 sm:px-5">
+              <span className={`text-[0.9375rem] font-semibold ${d === todayAR() ? "text-primary" : "text-ink"}`}>{d === todayAR() ? `Hoy · ${formatDay(d)}` : formatDay(d)}</span>
+              <span className="text-sm text-ink-3">{list.length} {list.length === 1 ? "turno" : "turnos"}</span>
+            </h2>
+            <ul className="divide-y divide-line px-4 sm:px-5">
               {list.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} onQuick={actions.quick} />)}
             </ul>
-          </div>
+          </section>
         ))
       )}
       {actions.dialogs}
@@ -919,65 +952,89 @@ export function DashboardView({ flash, onPatient, go }: { flash: Flash; onPatien
   }, [flash])
   useEffect(load, [load])
   const actions = useAppointmentActions(flash, load)
-  const tile = (label: string, value: string, hint?: string) => (
-    <div className={`${panel} p-4 sm:p-4`}>
-      <p className="text-xs text-premium/55">{label}</p>
-      <p className="mt-1 font-serif text-2xl font-semibold text-premium">{value}</p>
-      {hint && <p className="text-xs text-premium/50">{hint}</p>}
-    </div>
-  )
-  if (!d) return <p className="text-sm text-premium/60">Cargando…</p>
+  const alerts = useAdminAlerts(flash)
+  const pending = (d?.toReview.length ?? 0) + (d?.withoutDeposit.length ?? 0)
+
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-serif text-2xl font-bold text-premium">Inicio</h1>
-          <p className="text-sm text-premium/60">{formatDay(todayAR())}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => actions.create()} className={btnPrimary}><CalendarPlus className="h-4 w-4" /> Nuevo turno</button>
-          <button onClick={() => go("pacientes")} className={btnGhost}><UserPlus className="h-4 w-4" /> Pacientes</button>
-          <button onClick={() => go("promos")} className={btnGhost}><Plus className="h-4 w-4" /> Promoción</button>
-          <button onClick={() => go("agenda")} className={btnGhost}><CalendarPlus className="h-4 w-4" /> Jornada</button>
-          <button onClick={() => go("caja")} className={btnGhost}><Wallet className="h-4 w-4" /> Pagos</button>
-          <button onClick={() => go("conversaciones")} className={btnGhost}>Mensajes</button>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {tile("Turnos de hoy", String(d.today.length))}
-        {tile("Próximos turnos", String(d.upcomingCount))}
-        {tile("Cobrado hoy", formatARS(d.collectedToday))}
-        {tile("Cobrado este mes", formatARS(d.collectedMonth))}
-        {tile("Por cobrar (turnos próximos)", formatARS(d.pendingBalance))}
-      </div>
+    <section className="space-y-5">
+      <PageHeader
+        title="Inicio"
+        description={formatDay(todayAR())}
+        actions={
+          <>
+            <button onClick={() => go("pacientes")} className={btnGhost}><Search /> Buscar paciente</button>
+            <button onClick={() => actions.create()} className={btnPrimary}><CalendarPlus /> Nuevo turno</button>
+            <ActionMenu
+              label="Accesos rápidos"
+              items={[
+                { label: "Registrar un pago (Caja)", icon: <Wallet />, onSelect: () => go("caja") },
+                { label: "Abrir o editar una jornada", icon: <CalendarPlus />, onSelect: () => go("agenda") },
+                { label: "Crear una promoción", icon: <Plus />, onSelect: () => go("promos") },
+                { label: "Ver conversaciones", icon: <MessageCircle />, onSelect: () => go("conversaciones") },
+              ]}
+            />
+          </>
+        }
+      />
 
-      <PeriodPanel flash={flash} onPatient={onPatient} go={go} />
+      {!d ? (
+        <Loading rows={3} />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-6 xl:grid-cols-5 [&>*]:sm:col-span-2 [&>*]:xl:col-span-1">
+            <Stat label="Turnos de hoy" value={d.today.length} />
+            <Stat label="Próximos turnos" value={d.upcomingCount} />
+            <div className="col-span-2 sm:!col-span-2 xl:!col-span-1"><Stat label="Cobrado hoy" value={formatARS(d.collectedToday)} /></div>
+            <div className="sm:!col-span-3 xl:!col-span-1"><Stat label="Cobrado este mes" value={formatARS(d.collectedMonth)} /></div>
+            <div className="sm:!col-span-3 xl:!col-span-1"><Stat label="Por cobrar" value={formatARS(d.pendingBalance)} hint="De los turnos próximos" tone="primary" /></div>
+          </div>
 
-      {(d.withoutDeposit.length > 0 || d.toReview.length > 0) && (
-        <div className={`${panel} border-amber-200`}>
-          <p className="flex items-center gap-2 font-medium text-premium"><AlertTriangle className="h-4 w-4 text-amber-600" /> Para atender</p>
-          <ul className="mt-2 space-y-1 text-sm text-premium/80">
-            {d.toReview.map((b) => <li key={b.id}>· {b.name}: {STATUS[b.state].label.toLowerCase()} ({shortDateTime(b.starts_at)})</li>)}
-            {d.withoutDeposit.slice(0, 12).map((b) => (
-              <li key={b.id}>
-                · {b.name} — turno {shortDateTime(b.starts_at)}: seña de {formatARS(b.deposit_unrecorded)} sin registrar el medio de pago{" "}
-                <button onClick={() => actions.pay(b)} className="text-primary hover:underline">registrar</button>
-              </li>
-            ))}
-          </ul>
-        </div>
+          <Card
+            title="Turnos de hoy"
+            padded={false}
+            actions={<button onClick={() => go("turnos")} className={btnSmall}>Ver agenda completa</button>}
+          >
+            {d.today.length === 0 ? (
+              <Empty icon={<CalendarPlus />} title="No hay turnos hoy" text="Los turnos de hoy aparecen acá, con su seña y saldo." action={<button onClick={() => actions.create()} className={btnGhost}>Agendar un turno</button>} />
+            ) : (
+              <ul className="divide-y divide-line px-4 sm:px-5">
+                {d.today.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} onQuick={actions.quick} />)}
+              </ul>
+            )}
+          </Card>
+
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+            <Card title="Para atender" description={pending || alerts ? undefined : "Todo al día."}>
+              {d.toReview.length + d.withoutDeposit.length === 0 && !alerts ? (
+                <Loading rows={2} />
+              ) : (
+                <ul className="-my-2.5 divide-y divide-line">
+                  {d.toReview.map((b) => (
+                    <li key={b.id} className="flex items-center justify-between gap-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-ink">{b.name}</p>
+                        <p className="text-xs text-ink-2">{STATUS[b.state].label} · {shortDateTime(b.starts_at)}</p>
+                      </div>
+                      <button onClick={() => go("transferencias")} className={btnSmall}>Revisar</button>
+                    </li>
+                  ))}
+                  {d.withoutDeposit.slice(0, 8).map((b) => (
+                    <li key={b.id} className="flex items-center justify-between gap-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-ink">{b.name}</p>
+                        <p className="text-xs text-ink-2">Seña de {formatARS(b.deposit_unrecorded)} sin registrar el medio · {shortDateTime(b.starts_at)}</p>
+                      </div>
+                      <button onClick={() => actions.pay(b)} className={btnSmall}>Registrar</button>
+                    </li>
+                  ))}
+                  {alerts && <AlertItems d={alerts} onPatient={onPatient} go={go} />}
+                </ul>
+              )}
+            </Card>
+            <PeriodPanel flash={flash} />
+          </div>
+        </>
       )}
-
-      <div className={panel}>
-        <p className="font-medium text-premium">Turnos de hoy</p>
-        {d.today.length === 0 ? (
-          <p className="mt-2 text-sm text-premium/60">No hay turnos hoy.</p>
-        ) : (
-          <ul className="mt-1 divide-y divide-border">
-            {d.today.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} onQuick={actions.quick} />)}
-          </ul>
-        )}
-      </div>
       {actions.dialogs}
     </section>
   )
@@ -986,17 +1043,14 @@ export function DashboardView({ flash, onPatient, go }: { flash: Flash; onPatien
 /* ───────────── Pacientes ───────────── */
 
 const PATIENT_STATUSES = ["Nueva", "Activa", "Pausada", "Inactiva", "Finalizó", "Dejó", "Archivada"]
-const PATIENT_CLS: Record<string, string> = {
-  Nueva: "bg-violet-50 text-violet-700 border-violet-200",
-  Activa: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  Pausada: "bg-amber-50 text-amber-700 border-amber-200",
-  Finalizó: "bg-sky-50 text-sky-700 border-sky-200",
-}
+const PATIENT_TONE: Record<string, Tone> = { Nueva: "accent", Activa: "success", Pausada: "warning", Finalizó: "info" }
+type SortKey = "nombre" | "resta" | "proximo" | "sesiones"
 
 export function PatientsView({ flash, openId, onOpened }: { flash: Flash; openId: number | null; onOpened: () => void }) {
   const [patients, setPatients] = useState<PatientSummary[] | null>(null)
   const [query, setQuery] = useState("")
   const [status, setStatus] = useState("")
+  const [sort, setSort] = useState<SortKey>("nombre")
   const [open, setOpen] = useState<number | "new" | null>(null)
 
   const load = useCallback(() => {
@@ -1011,59 +1065,111 @@ export function PatientsView({ flash, openId, onOpened }: { flash: Flash; openId
   }, [openId, onOpened])
 
   const q = query.trim().toLowerCase()
-  const visible = (patients ?? []).filter((p) => (!status || p.status === status || (status === "deuda" && p.balance > 0)) && (!q || `${p.name} ${p.phone} ${p.treatments} ${p.email}`.toLowerCase().includes(q)))
+  const visible = useMemo(() => {
+    const list = (patients ?? []).filter((p) => (!status || p.status === status || (status === "deuda" && p.balance > 0)) && (!q || `${p.name} ${p.phone} ${p.treatments} ${p.email}`.toLowerCase().includes(q)))
+    const by: Record<SortKey, (a: PatientSummary, b: PatientSummary) => number> = {
+      nombre: (a, b) => a.name.localeCompare(b.name, "es"),
+      resta: (a, b) => b.balance - a.balance,
+      sesiones: (a, b) => b.sessions_done - a.sessions_done,
+      proximo: (a, b) => (a.next_appointment ?? "9").localeCompare(b.next_appointment ?? "9"),
+    }
+    return [...list].sort(by[sort])
+  }, [patients, status, q, sort])
   const totals = visible.reduce((a, p) => ({ balance: a.balance + p.balance, sessions: a.sessions + p.sessions_done }), { balance: 0, sessions: 0 })
+  const paidOf = (p: PatientSummary) => p.paid + (p.deposits_unrecorded ?? 0)
+  const filtered = !!q || !!status
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-serif text-2xl font-bold text-premium">Pacientes</h1>
-          <p className="text-sm text-premium/60">{visible.length} pacientes · {totals.sessions} sesiones realizadas · {formatARS(totals.balance)} por cobrar</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar nombre, teléfono, zona…" className={`${fieldInline} w-56`} aria-label="Buscar paciente" />
-          <select value={status} onChange={(e) => setStatus(e.target.value)} className={`${fieldInline} w-40`} aria-label="Estado">
-            <option value="">Todos</option>
+    <section className="space-y-5">
+      <PageHeader
+        title="Pacientes"
+        description={patients ? `${visible.length} ${visible.length === 1 ? "paciente" : "pacientes"} · ${totals.sessions} sesiones realizadas · ${formatARS(totals.balance)} por cobrar` : undefined}
+        actions={<button onClick={() => setOpen("new")} className={btnPrimary}><UserPlus /> Nuevo paciente</button>}
+      />
+
+      <div className="rounded-xl border border-line bg-white shadow-card">
+        <div className="grid gap-2 border-b border-line p-3 sm:grid-cols-[minmax(0,1fr)_200px_200px] sm:p-4">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" aria-hidden />
+            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por nombre, teléfono, email o zona" aria-label="Buscar paciente" className={`${field} h-9 pl-9`} />
+          </div>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} className={`${field} h-9`} aria-label="Filtrar por estado">
+            <option value="">Todos los estados</option>
             <option value="deuda">Con saldo pendiente</option>
             {PATIENT_STATUSES.map((s) => <option key={s}>{s}</option>)}
           </select>
-          <button onClick={() => setOpen("new")} className={btnPrimary}><Plus className="h-4 w-4" /> Nuevo</button>
+          <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className={`${field} h-9`} aria-label="Ordenar">
+            <option value="nombre">Ordenar por nombre</option>
+            <option value="resta">Mayor saldo pendiente</option>
+            <option value="proximo">Próximo turno</option>
+            <option value="sesiones">Más sesiones</option>
+          </select>
         </div>
-      </div>
-      <div className={`${panel} overflow-x-auto p-0 sm:p-0`}>
+
         {patients === null ? (
-          <p className="p-5 text-sm text-premium/60">Cargando…</p>
+          <div className="p-4"><Loading rows={5} /></div>
+        ) : visible.length === 0 ? (
+          <Empty
+            icon={<Users />}
+            title={filtered ? "No hay pacientes que coincidan" : "Todavía no hay pacientes"}
+            text={filtered ? "Probá con otra búsqueda o cambiá el filtro." : "Se crean solos al reservar por la web o el chat, o podés cargarlos acá."}
+            action={filtered ? <button onClick={() => (setQuery(""), setStatus(""))} className={btnGhost}>Limpiar filtros</button> : <button onClick={() => setOpen("new")} className={btnGhost}>Cargar paciente</button>}
+          />
         ) : (
-          <table className="w-full min-w-[820px] text-sm">
-            <thead className="border-b border-premium text-left text-xs text-premium/55">
-              <tr>
-                <th className="px-4 py-3 font-medium">Nombre</th>
-                <th className="px-3 py-3 font-medium">Tratamiento</th>
-                <th className="px-3 py-3 text-right font-medium">Sesiones</th>
-                <th className="px-3 py-3 text-right font-medium">Pagado</th>
-                <th className="px-3 py-3 text-right font-medium">Resta</th>
-                <th className="px-3 py-3 font-medium">Próximo turno</th>
-                <th className="px-3 py-3 font-medium">Estado</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+          <>
+            {/* escritorio y tablet: tabla */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-sm">
+                <thead className={tableHead}>
+                  <tr>
+                    <th scope="col" className="px-4 py-2.5 font-medium">Paciente</th>
+                    <th scope="col" className="hidden px-3 py-2.5 font-medium lg:table-cell">Tratamiento</th>
+                    <th scope="col" className="px-3 py-2.5 text-right font-medium">Sesiones</th>
+                    <th scope="col" className="px-3 py-2.5 text-right font-medium">Pagado</th>
+                    <th scope="col" className="px-3 py-2.5 text-right font-medium">Resta</th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">Próximo turno</th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">Estado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {visible.map((p) => (
+                    <tr key={p.id} onClick={() => setOpen(p.id)} className="cursor-pointer transition-colors duration-100 hover:bg-surface/70">
+                      <td className="px-4 py-3">
+                        <button onClick={(e) => (e.stopPropagation(), setOpen(p.id))} className="rounded text-left font-medium text-ink hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45">
+                          {p.name}
+                        </button>
+                        <p className="text-xs tabular-nums text-ink-3">{p.phone || "Sin teléfono"}</p>
+                      </td>
+                      <td className="hidden max-w-[260px] truncate px-3 py-3 text-ink-2 lg:table-cell" title={p.treatments}>{p.treatments || <span className="text-ink-3">—</span>}</td>
+                      <td className="px-3 py-3 text-right tabular-nums text-ink">{p.sessions_done}</td>
+                      <td className="px-3 py-3 text-right tabular-nums text-ink-2">{paidOf(p) > 0 ? formatARS(paidOf(p)) : <span className="text-ink-3">—</span>}</td>
+                      <td className={`px-3 py-3 text-right tabular-nums ${p.balance > 0 ? "font-semibold text-primary" : "text-ink-3"}`}>{p.balance > 0 ? formatARS(p.balance) : "—"}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-ink-2">{p.next_appointment ? shortDateTime(p.next_appointment) : <span className="text-ink-3">Sin turno</span>}</td>
+                      <td className="px-4 py-3"><Badge tone={PATIENT_TONE[p.status] ?? "neutral"}>{p.status}</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* celular: tarjetas */}
+            <ul className="divide-y divide-line md:hidden">
               {visible.map((p) => (
-                <tr key={p.id} onClick={() => setOpen(p.id)} className="cursor-pointer transition-premium hover:bg-secondary/40">
-                  <td className="px-4 py-2.5">
-                    <p className="font-medium text-premium">{p.name}</p>
-                    <p className="text-xs text-premium/50">{p.phone || "sin teléfono"}</p>
-                  </td>
-                  <td className="max-w-[240px] px-3 py-2.5 text-premium/75">{p.treatments || "—"}</td>
-                  <td className="px-3 py-2.5 text-right text-premium">{p.sessions_done}</td>
-                  <td className="px-3 py-2.5 text-right text-premium/75">{p.paid > 0 ? formatARS(p.paid) : "—"}</td>
-                  <td className={`px-3 py-2.5 text-right ${p.balance > 0 ? "font-medium text-primary" : "text-premium/50"}`}>{p.balance > 0 ? formatARS(p.balance) : "—"}</td>
-                  <td className="px-3 py-2.5 text-premium/75">{shortDateTime(p.next_appointment)}</td>
-                  <td className="px-3 py-2.5"><span className={`${chip} ${PATIENT_CLS[p.status] ?? "bg-stone-100 text-stone-500 border-stone-200"}`}>{p.status}</span></td>
-                </tr>
+                <li key={p.id}>
+                  <button onClick={() => setOpen(p.id)} className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left hover:bg-surface/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/45">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-ink">{p.name}</p>
+                      <p className="text-xs text-ink-3">{p.phone || "Sin teléfono"} · {p.sessions_done} sesiones</p>
+                      <p className="mt-0.5 text-xs text-ink-2">{p.next_appointment ? `Próximo: ${shortDateTime(p.next_appointment)}` : "Sin próximo turno"}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <Badge tone={PATIENT_TONE[p.status] ?? "neutral"}>{p.status}</Badge>
+                      {p.balance > 0 && <p className="mt-1 text-sm font-semibold tabular-nums text-primary">Resta {formatARS(p.balance)}</p>}
+                    </div>
+                  </button>
+                </li>
               ))}
-            </tbody>
-          </table>
+            </ul>
+          </>
         )}
       </div>
       {open !== null && (
@@ -1151,7 +1257,7 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
   }, [profile, p?.legacy_sessions])
 
   return (
-    <Drawer title={id ? form.name || "Paciente" : "Nuevo paciente"} onClose={onClose} wide>
+    <Drawer title={id ? form.name || "Paciente" : "Nuevo paciente"} subtitle={profile?.patient.phone || undefined} onClose={onClose} wide>
       {p && (
         <>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
@@ -1162,9 +1268,9 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
               ["Pagado", formatARS(p.paid)],
               ["Resta abonar", formatARS(p.balance)],
             ].map(([k, v]) => (
-              <div key={k} className="rounded-xl border border-premium bg-premium-light/60 p-3">
-                <p className="text-[11px] text-premium/55">{k}</p>
-                <p className={`mt-0.5 font-medium ${k === "Resta abonar" && p.balance > 0 ? "text-primary" : "text-premium"}`}>{v}</p>
+              <div key={k} className="rounded-xl border border-line bg-surface p-3">
+                <p className="text-[11px] text-ink-3">{k}</p>
+                <p className={`mt-0.5 font-medium ${k === "Resta abonar" && p.balance > 0 ? "text-primary" : "text-ink"}`}>{v}</p>
               </div>
             ))}
           </div>
@@ -1177,7 +1283,7 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
             <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">Tiene sesiones realizadas y no tiene fecha para continuar.</p>
           )}
           {(p.legacy_sessions > 0 || p.legacy_balance > 0) && (
-            <p className="mt-3 text-xs text-premium/55">
+            <p className="mt-3 text-xs text-ink-3">
               Incluye datos cargados antes del sistema integrado: {p.legacy_sessions} sesiones y {formatARS(p.legacy_balance)} de saldo previo.
             </p>
           )}
@@ -1187,7 +1293,7 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
       {id && (
         <div className="mt-5 flex gap-1 border-b border-border">
           {(["sesiones", "pagos", "datos"] as const).map((t) => (
-            <button key={t} onClick={() => setTab(t)} className={`border-b-2 px-3 py-2 text-sm ${tab === t ? "border-primary font-medium text-primary" : "border-transparent text-premium/60"}`}>
+            <button key={t} onClick={() => setTab(t)} className={`border-b-2 px-3 py-2 text-sm ${tab === t ? "border-primary font-medium text-primary" : "border-transparent text-ink-3"}`}>
               {{ sesiones: "Sesiones y turnos", pagos: "Pagos", datos: "Datos personales" }[t]}
             </button>
           ))}
@@ -1198,25 +1304,25 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
         <div className="mt-3 space-y-4">
           {profile.treatments.length > 0 && (
             <div>
-              <p className="text-sm font-medium text-premium">Tratamientos</p>
+              <p className="text-sm font-medium text-ink">Tratamientos</p>
               <div className="mt-1 grid gap-2 sm:grid-cols-2">
                 {profile.treatments.map((t) => (
-                  <div key={t.category} className="rounded-xl border border-premium p-3 text-sm">
+                  <div key={t.category} className="rounded-xl border border-line p-3 text-sm">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="font-medium text-premium">{t.category}</p>
+                      <p className="font-medium text-ink">{t.category}</p>
                       <select
                         value={t.status}
                         onChange={(e) => api("/api/admin/patients", { method: "PUT", body: JSON.stringify({ id, treatment: { category: t.category, status: e.target.value, notes: t.notes } }) }).then(load).catch(() => flash("No se pudo actualizar", true))}
-                        className="h-8 rounded-md border border-premium bg-white px-2 text-xs"
+                        className="h-8 rounded-md border border-line bg-white px-2 text-xs"
                         aria-label="Estado del tratamiento"
                       >
                         {["Activo", "Pausado", "Finalizado", "Abandonado"].map((x) => <option key={x}>{x}</option>)}
                       </select>
                     </div>
-                    <p className="mt-1 text-premium/70">{t.sessions_done} sesiones · primera {shortDate(t.first_session)} · última {shortDate(t.last_session)}</p>
-                    <p className="text-premium/70">Próxima: {t.next_session ? shortDateTime(t.next_session) : "sin fecha"}</p>
-                    {t.zones && <p className="text-xs text-premium/55">Zonas: {t.zones}</p>}
-                    {t.professionals && <p className="text-xs text-premium/55">Profesionales: {t.professionals}</p>}
+                    <p className="mt-1 text-ink-2">{t.sessions_done} sesiones · primera {shortDate(t.first_session)} · última {shortDate(t.last_session)}</p>
+                    <p className="text-ink-2">Próxima: {t.next_session ? shortDateTime(t.next_session) : "sin fecha"}</p>
+                    {t.zones && <p className="text-xs text-ink-3">Zonas: {t.zones}</p>}
+                    {t.professionals && <p className="text-xs text-ink-3">Profesionales: {t.professionals}</p>}
                   </div>
                 ))}
               </div>
@@ -1224,16 +1330,16 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
           )}
           {upcoming.length > 0 && (
             <div>
-              <p className="text-sm font-medium text-premium">Próximos</p>
+              <p className="text-sm font-medium text-ink">Próximos</p>
               <ul className="divide-y divide-border">
                 {upcoming.map((b) => <AppointmentRow key={b.id} b={b} compact onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onQuick={actions.quick} />)}
               </ul>
             </div>
           )}
           <div>
-            <p className="text-sm font-medium text-premium">Historial</p>
+            <p className="text-sm font-medium text-ink">Historial</p>
             {past.length === 0 ? (
-              <p className="mt-1 text-sm text-premium/60">Todavía no hay sesiones registradas.</p>
+              <p className="mt-1 text-sm text-ink-3">Todavía no hay sesiones registradas.</p>
             ) : (
               <ul className="divide-y divide-border">
                 {past.map((b) => (
@@ -1251,17 +1357,17 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
       {tab === "pagos" && profile && (
         <div className="mt-3">
           {profile.payments.length === 0 ? (
-            <p className="text-sm text-premium/60">No hay pagos registrados.</p>
+            <p className="mt-1 text-sm text-ink-2">No hay pagos registrados.</p>
           ) : (
             <ul className="divide-y divide-border">
               {profile.payments.map((x) => (
                 <li key={x.id} className="flex items-center gap-3 py-2.5 text-sm">
-                  <p className="w-24 shrink-0 text-premium/60">{shortDate(x.paid_at)}</p>
+                  <p className="w-24 shrink-0 text-ink-3">{shortDate(x.paid_at)}</p>
                   <div className="min-w-0 flex-1">
-                    <p className="text-premium">{x.concept} · {x.method}{x.service_name ? ` · ${x.service_name}` : ""}</p>
-                    <p className="text-xs text-premium/50">Registró: {x.created_by}{x.notes ? ` · ${x.notes}` : ""}</p>
+                    <p className="text-ink">{x.concept} · {x.method}{x.service_name ? ` · ${x.service_name}` : ""}</p>
+                    <p className="text-xs text-ink-3">Registró: {x.created_by}{x.notes ? ` · ${x.notes}` : ""}</p>
                   </div>
-                  <p className="font-medium text-premium">{formatARS(x.amount)}</p>
+                  <p className="font-medium text-ink">{formatARS(x.amount)}</p>
                   {x.origin === "manual" && (
                     <button
                       onClick={async () => {
@@ -1275,7 +1381,7 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
                       Corregir
                     </button>
                   )}
-                  {x.origin === "manual" && <button onClick={() => removePayment(x)} className={`${btnIcon} h-8 w-8 text-destructive`} aria-label="Anular pago"><Trash2 className="h-3.5 w-3.5" /></button>}
+                  {x.origin === "manual" && <button onClick={() => removePayment(x)} className={`${btnIcon} h-8 w-8 text-red-700`} aria-label="Anular pago"><Trash2 className="h-3.5 w-3.5" /></button>}
                 </li>
               ))}
             </ul>
@@ -1296,14 +1402,14 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
             <label className={lbl}>Estado<select value={form.status} onChange={(e) => set({ status: e.target.value })} className={`${field} mt-1`}>{PATIENT_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
             <label className={`${lbl} col-span-2`}>Tratamientos / zonas habituales<input value={form.treatments} onChange={(e) => set({ treatments: e.target.value })} className={`${field} mt-1`} /></label>
             <label className={`${lbl} col-span-2`}>Observaciones administrativas<textarea rows={4} value={form.notes} onChange={(e) => set({ notes: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
-            <label className="col-span-2 flex items-center gap-2 text-sm text-premium/70">
+            <label className="col-span-2 flex items-center gap-2 text-sm text-ink-2">
               <input type="checkbox" checked={form.marketing_consent} onChange={(e) => set({ marketing_consent: e.target.checked })} className="accent-[#882626]" /> Acepta recibir comunicaciones comerciales (promociones, novedades)
             </label>
           </div>
-          <p className="text-xs text-premium/55">Las sesiones, los pagos, el saldo y el próximo turno se calculan solos a partir de la agenda y los pagos registrados.</p>
+          <p className="text-xs text-ink-3">Las sesiones, los pagos, el saldo y el próximo turno se calculan solos a partir de la agenda y los pagos registrados.</p>
           <div className="flex gap-2">
             <button onClick={save} className={btnPrimary}><Save className="h-4 w-4" /> {id ? "Guardar" : "Crear paciente"}</button>
-            {id && <button onClick={remove} className={`${btnIcon} ml-auto text-destructive`} aria-label="Eliminar paciente"><Trash2 className="h-4 w-4" /></button>}
+            {id && <button onClick={remove} className={`${btnIcon} ml-auto text-red-700`} aria-label="Eliminar paciente"><Trash2 className="h-4 w-4" /></button>}
           </div>
         </div>
       )}
@@ -1337,69 +1443,94 @@ export function CashView({ flash }: { flash: Flash }) {
   const sold = firm.reduce((n, b) => n + b.final_price, 0)
   const collected = (payments ?? []).reduce((n, p) => n + p.amount, 0)
   const due = firm.reduce((n, b) => n + b.balance, 0)
-  const byMethod = (payments ?? []).reduce<Record<string, number>>((m, p) => ({ ...m, [p.method]: (m[p.method] ?? 0) + p.amount }), {})
+  const byMethod = Object.entries((payments ?? []).reduce<Record<string, number>>((m, p) => ({ ...m, [p.method]: (m[p.method] ?? 0) + p.amount }), {})).sort((a, b) => b[1] - a[1])
+  const preset = (k: "mes" | "anterior" | "hoy") => {
+    const t = todayAR()
+    if (k === "hoy") return (setFrom(t), setTo(t))
+    if (k === "mes") return (setFrom(`${t.slice(0, 7)}-01`), setTo(t))
+    const lastPrev = addDays(`${t.slice(0, 7)}-01`, -1)
+    setFrom(`${lastPrev.slice(0, 7)}-01`)
+    setTo(lastPrev)
+  }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-serif text-2xl font-bold text-premium">Caja</h1>
-          <p className="text-sm text-premium/60">Lo vendido (turnos del período), lo efectivamente cobrado y lo que falta cobrar, por separado.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${fieldInline} h-9`} aria-label="Desde" />
-          <span className="text-premium/50">a</span>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${fieldInline} h-9`} aria-label="Hasta" />
-          <a href={`/api/admin/payments?desde=${from}&hasta=${to}&formato=csv`} className={`${btnGhost} h-9`}><Download className="h-4 w-4" /> Exportar CSV</a>
+    <section className="space-y-5">
+      <PageHeader
+        title="Caja"
+        description="Lo vendido (turnos del período), lo efectivamente cobrado y lo que falta cobrar, por separado."
+        actions={<a href={`/api/admin/payments?desde=${from}&hasta=${to}&formato=csv`} className={btnGhost}><Download /> Exportar CSV</a>}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <button onClick={() => preset("hoy")} className={btnSmall}>Hoy</button>
+        <button onClick={() => preset("mes")} className={btnSmall}>Este mes</button>
+        <button onClick={() => preset("anterior")} className={btnSmall}>Mes anterior</button>
+        <div className="flex items-center gap-2">
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${fieldInline} h-9 w-[9.5rem]`} aria-label="Desde" />
+          <span className="text-sm text-ink-3">a</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${fieldInline} h-9 w-[9.5rem]`} aria-label="Hasta" />
         </div>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {[
-          ["Vendido (turnos del período)", sold],
-          ["Cobrado en el período", collected],
-          ["Por cobrar de esos turnos", due],
-        ].map(([k, v]) => (
-          <div key={k} className={`${panel} p-4 sm:p-4`}>
-            <p className="text-xs text-premium/55">{k}</p>
-            <p className="mt-1 font-serif text-2xl font-semibold text-premium">{formatARS(v as number)}</p>
-          </div>
-        ))}
+        <Stat label="Vendido" value={formatARS(sold)} hint="Turnos firmes del período" />
+        <Stat label="Cobrado" value={formatARS(collected)} hint="Pagos registrados en el período" />
+        <Stat label="Por cobrar" value={formatARS(due)} hint="Saldo de esos turnos" tone="primary" />
       </div>
-      {Object.keys(byMethod).length > 0 && (
-        <p className="text-sm text-premium/70">{Object.entries(byMethod).map(([m, v]) => `${m}: ${formatARS(v)}`).join(" · ")}</p>
+      {byMethod.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Cobrado por medio de pago">
+          <span className="text-ink-3">Por medio:</span>
+          {byMethod.map(([m, v]) => (
+            <span key={m} className="rounded-full border border-line bg-white px-2.5 py-1 text-ink-2">{m} <strong className="font-semibold tabular-nums text-ink">{formatARS(v)}</strong></span>
+          ))}
+        </div>
       )}
-      <div className={`${panel} overflow-x-auto p-0 sm:p-0`}>
+      <Card title="Movimientos" padded={false}>
         {payments === null ? (
-          <p className="p-5 text-sm text-premium/60">Cargando…</p>
+          <div className="p-4"><Loading /></div>
         ) : payments.length === 0 ? (
-          <p className="p-5 text-sm text-premium/60">No hay pagos en este período.</p>
+          <Empty icon={<Wallet />} title="No hay pagos en este período" text="Los pagos se registran desde cada turno (Registrar pago) o desde la ficha del paciente." />
         ) : (
-          <table className="w-full min-w-[700px] text-sm">
-            <thead className="border-b border-premium text-left text-xs text-premium/55">
-              <tr>
-                <th className="px-4 py-3 font-medium">Fecha</th>
-                <th className="px-3 py-3 font-medium">Paciente</th>
-                <th className="px-3 py-3 font-medium">Turno</th>
-                <th className="px-3 py-3 font-medium">Concepto</th>
-                <th className="px-3 py-3 font-medium">Medio</th>
-                <th className="px-3 py-3 text-right font-medium">Importe</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+          <>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-sm">
+                <thead className={tableHead}>
+                  <tr>
+                    <th scope="col" className="px-4 py-2.5 font-medium">Fecha</th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">Paciente</th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">Turno</th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">Concepto</th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">Medio</th>
+                    <th scope="col" className="px-4 py-2.5 text-right font-medium">Importe</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {payments.map((p) => (
+                    <tr key={p.id} className="hover:bg-surface/50">
+                      <td className="whitespace-nowrap px-4 py-3 text-ink-2">{shortDateTime(p.paid_at)}</td>
+                      <td className="px-3 py-3 font-medium text-ink">{p.patient_name ?? "—"}</td>
+                      <td className="px-3 py-3 text-ink-2">{p.service_name ? `${p.service_name} · ${shortDate(p.starts_at ?? null)}` : "A cuenta"}</td>
+                      <td className="px-3 py-3 text-ink-2">{p.concept}</td>
+                      <td className="px-3 py-3 text-ink-2">{p.method}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-ink">{formatARS(p.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <ul className="divide-y divide-line md:hidden">
               {payments.map((p) => (
-                <tr key={p.id}>
-                  <td className="px-4 py-2.5 text-premium/70">{shortDateTime(p.paid_at)}</td>
-                  <td className="px-3 py-2.5 text-premium">{p.patient_name ?? "—"}</td>
-                  <td className="px-3 py-2.5 text-premium/70">{p.service_name ? `${p.service_name} · ${shortDate(p.starts_at ?? null)}` : "A cuenta"}</td>
-                  <td className="px-3 py-2.5 text-premium/70">{p.concept}</td>
-                  <td className="px-3 py-2.5 text-premium/70">{p.method}</td>
-                  <td className="px-3 py-2.5 text-right font-medium text-premium">{formatARS(p.amount)}</td>
-                </tr>
+                <li key={p.id} className="flex items-start justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-ink">{p.patient_name ?? "—"}</p>
+                    <p className="text-xs text-ink-2">{p.concept} · {p.method}</p>
+                    <p className="text-xs text-ink-3">{shortDateTime(p.paid_at)}{p.service_name ? ` · ${p.service_name}` : ""}</p>
+                  </div>
+                  <p className="shrink-0 font-semibold tabular-nums text-ink">{formatARS(p.amount)}</p>
+                </li>
               ))}
-            </tbody>
-          </table>
+            </ul>
+          </>
         )}
-      </div>
+      </Card>
     </section>
   )
 }

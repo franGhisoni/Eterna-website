@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Bot, CalendarCheck, ChevronLeft, ChevronRight, Copy, Download, Hand, MessageSquare, Plus, Save, ShieldCheck, Trash2, UserPlus } from "lucide-react"
 import { addDays, formatARS, formatDay, todayAR, weekdayOf } from "@/lib/time"
-import { api, ApiError, btnGhost, btnIcon, btnPrimary, btnSmall, chip, field, fieldInline, lbl, panel, shortDate, shortDateTime, type Flash } from "./ui"
+import { api, ApiError, Badge, btnGhost, btnIcon, btnLink, btnPrimary, btnSmall, Card, chip, Empty, Field, field, fieldInline, lbl, Loading, PageHeader, panel, Segmented, shortDate, shortDateTime, type Flash } from "./ui"
 
 /* ───────────── Lista editable genérica (profesionales, equipos, usuarios, preguntas) ───────────── */
 
@@ -46,15 +46,15 @@ export function RecordList({ entity, title, intro, cols, blank, flash, readOnly,
     <div className={panel}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="font-serif text-lg font-semibold text-premium">{title}</p>
-          {intro && <p className="max-w-3xl text-sm text-premium/60">{intro}</p>}
+          <p className="text-[0.9375rem] font-semibold text-ink">{title}</p>
+          {intro && <p className="mt-1 max-w-3xl text-sm leading-relaxed text-ink-2">{intro}</p>}
         </div>
         {!readOnly && <button onClick={() => setItems((v) => [{ ...blank }, ...(v ?? [])])} className={`${btnGhost} h-9`}><Plus className="h-4 w-4" /> Agregar</button>}
       </div>
       {items === null ? (
-        <p className="mt-3 text-sm text-premium/60">Cargando…</p>
+        <p className="mt-3 text-sm text-ink-3">Cargando…</p>
       ) : items.length === 0 ? (
-        <p className="mt-3 text-sm text-premium/60">Todavía no hay nada cargado.</p>
+        <p className="mt-3 text-sm text-ink-3">Todavía no hay nada cargado.</p>
       ) : (
         <ul className="mt-3 divide-y divide-border">
           {items.map((it, i) => (
@@ -65,7 +65,7 @@ export function RecordList({ entity, title, intro, cols, blank, flash, readOnly,
                   const cls = c.wide ? "sm:col-span-2 lg:col-span-4" : ""
                   if (c.type === "bool")
                     return (
-                      <label key={c.key} className={`flex items-center gap-2 self-end pb-2 text-sm text-premium/70 ${cls}`}>
+                      <label key={c.key} className={`flex items-center gap-2 self-end pb-2 text-sm text-ink-2 ${cls}`}>
                         <input type="checkbox" disabled={readOnly} checked={v === true} onChange={(e) => update(i, { [c.key]: e.target.checked })} className="accent-[#882626]" /> {c.label}
                       </label>
                     )
@@ -100,7 +100,7 @@ export function RecordList({ entity, title, intro, cols, blank, flash, readOnly,
               {renderExtra?.(it)}
               {!readOnly && (
                 <div className="mt-2 flex justify-end gap-2">
-                  <button onClick={() => remove(i)} className={`${btnIcon} h-9 w-9 text-destructive`} aria-label="Eliminar"><Trash2 className="h-4 w-4" /></button>
+                  <button onClick={() => remove(i)} className={`${btnIcon} h-9 w-9 text-red-700`} aria-label="Eliminar"><Trash2 className="h-4 w-4" /></button>
                   <button onClick={() => save(i)} className={`${btnPrimary} h-9`}><Save className="h-4 w-4" /> Guardar</button>
                 </div>
               )}
@@ -118,8 +118,8 @@ export function TeamView({ flash }: { flash: Flash }) {
   return (
     <section className="space-y-4">
       <div>
-        <h1 className="font-serif text-2xl font-bold text-premium">Equipo y equipamiento</h1>
-        <p className="text-sm text-premium/60">Las profesionales habilitadas para cada tratamiento y los equipos del centro. El sistema no deja asignar un turno a una profesional dada de baja o no habilitada.</p>
+        <h1 className="font-serif text-[1.625rem] font-semibold leading-tight text-ink">Equipo y equipamiento</h1>
+        <p className="mt-1 text-sm text-ink-2">Las profesionales habilitadas para cada tratamiento y los equipos del centro. El sistema no deja asignar un turno a una profesional dada de baja o no habilitada.</p>
       </div>
       <RecordList
         entity="profesionales"
@@ -170,7 +170,7 @@ function RangesEditor({ rows, onChange, professionals }: { rows: RangeRow[]; onC
   return (
     <div className="space-y-3">
       {rows.map((r, i) => (
-        <div key={i} className="rounded-xl border border-premium p-3">
+        <div key={i} className="rounded-xl border border-line p-3">
           <div className="grid grid-cols-2 gap-2">
             <label className={lbl}>Desde<input type="time" value={r.start} onChange={(e) => set(i, { start: e.target.value })} className={`${field} mt-1`} /></label>
             <label className={lbl}>Hasta<input type="time" value={r.end} onChange={(e) => set(i, { end: e.target.value })} className={`${field} mt-1`} /></label>
@@ -185,7 +185,7 @@ function RangesEditor({ rows, onChange, professionals }: { rows: RangeRow[]; onC
             <label className={`${lbl} col-span-2`}>Observaciones<input value={r.notes} onChange={(e) => set(i, { notes: e.target.value })} className={`${field} mt-1`} placeholder="Ej.: jornada de depilación" /></label>
           </div>
           <div className="mt-2 flex items-center justify-between">
-            <label className="flex items-center gap-2 text-sm text-premium/70">
+            <label className="flex items-center gap-2 text-sm text-ink-2">
               <input type="checkbox" checked={r.published} onChange={(e) => set(i, { published: e.target.checked })} className="accent-[#882626]" /> Publicada para reservas online
             </label>
             <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className={`${btnIcon} h-8 w-8`} aria-label="Quitar franja"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -298,17 +298,17 @@ export function JornadasView({ flash }: { flash: Flash }) {
   return (
     <section className="space-y-4">
       <div>
-        <h1 className="font-serif text-2xl font-bold text-premium">Jornadas y disponibilidad</h1>
-        <p className="text-sm text-premium/60">Eterna atiende por jornadas: solo se pueden reservar online los días y franjas publicados acá. Al ocuparse un horario deja de ofrecerse solo.</p>
+        <h1 className="font-serif text-[1.625rem] font-semibold leading-tight text-ink">Jornadas y disponibilidad</h1>
+        <p className="mt-1 text-sm text-ink-2">Eterna atiende por jornadas: solo se pueden reservar online los días y franjas publicados acá. Al ocuparse un horario deja de ofrecerse solo.</p>
       </div>
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         <div className={panel}>
           <div className="flex items-center justify-between">
             <button onClick={() => shift(-1)} className={btnIcon} aria-label="Mes anterior"><ChevronLeft className="h-4 w-4" /></button>
-            <p className="font-medium text-premium first-letter:uppercase">{monthLabel}</p>
+            <p className="font-medium text-ink first-letter:uppercase">{monthLabel}</p>
             <button onClick={() => shift(1)} className={btnIcon} aria-label="Mes siguiente"><ChevronRight className="h-4 w-4" /></button>
           </div>
-          <div className="mt-4 grid grid-cols-7 gap-1.5 text-center text-xs text-premium/55">{WEEKDAYS.map((w) => <div key={w}>{w}</div>)}</div>
+          <div className="mt-4 grid grid-cols-7 gap-1.5 text-center text-xs text-ink-3">{WEEKDAYS.map((w) => <div key={w}>{w}</div>)}</div>
           <div className="mt-2 grid grid-cols-7 gap-1.5">
             {cells.map((d, i) => {
               if (!d) return <div key={`e${i}`} />
@@ -321,18 +321,18 @@ export function JornadasView({ flash }: { flash: Flash }) {
                   key={d}
                   onClick={() => select(d)}
                   className={[
-                    "flex min-h-[70px] flex-col items-start rounded-lg border p-1.5 text-left transition-premium sm:min-h-[84px] sm:p-2",
-                    selected === d ? "border-primary ring-2 ring-primary/15" : "border-premium hover:border-primary/40",
-                    has ? (hidden ? "bg-stone-100" : "bg-secondary/60") : "bg-white",
+                    "flex min-h-[70px] flex-col items-start rounded-lg border p-1.5 text-left transition-colors duration-150 sm:min-h-[84px] sm:p-2",
+                    selected === d ? "border-primary ring-2 ring-primary/15" : "border-line hover:border-primary/40",
+                    has ? (hidden ? "bg-stone-100" : "bg-surface-2") : "bg-white",
                     d < today ? "opacity-50" : "",
                   ].join(" ")}
                 >
-                  <span className={`text-sm font-medium ${d === today ? "text-primary" : "text-premium"}`}>{Number(d.slice(8))}</span>
+                  <span className={`text-sm font-medium ${d === today ? "text-primary" : "text-ink"}`}>{Number(d.slice(8))}</span>
                   {(byDay.get(d) ?? []).map((r) => (
                     <span key={`${r.start_time}${r.professional}`} className="mt-0.5 hidden text-[10px] leading-tight text-primary sm:block">{r.start_time}–{r.end_time}{r.professional ? ` · ${r.professional.split(" ")[0]}` : ""}</span>
                   ))}
-                  {pct !== null && has && <span className="mt-auto text-[10px] text-premium/60">{occ!.taken} tomados · {pct}%</span>}
-                  {hidden && <span className="text-[10px] text-premium/50">oculta</span>}
+                  {pct !== null && has && <span className="mt-auto text-[10px] text-ink-3">{occ!.taken} tomados · {pct}%</span>}
+                  {hidden && <span className="text-[10px] text-ink-3">oculta</span>}
                 </button>
               )
             })}
@@ -343,8 +343,8 @@ export function JornadasView({ flash }: { flash: Flash }) {
           <div className={panel}>
             {selected ? (
               <>
-                <p className="font-medium text-premium">{formatDay(selected)}</p>
-                {data?.occupancy[selected] && <p className="mb-2 text-xs text-premium/60">{data.occupancy[selected].taken} turnos tomados · {data.occupancy[selected].free} horarios libres</p>}
+                <p className="font-medium text-ink">{formatDay(selected)}</p>
+                {data?.occupancy[selected] && <p className="mb-2 text-xs text-ink-3">{data.occupancy[selected].taken} turnos tomados · {data.occupancy[selected].free} horarios libres</p>}
                 <RangesEditor rows={editing} onChange={setEditing} professionals={professionals} />
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button onClick={() => saveDay(editing)} className={btnPrimary}><Save className="h-4 w-4" /> Guardar jornada</button>
@@ -362,16 +362,16 @@ export function JornadasView({ flash }: { flash: Flash }) {
                   </div>
                 )}
                 <div className="mt-4 border-t border-border pt-3">
-                  <p className="text-sm font-medium text-premium">Duplicar esta jornada</p>
+                  <p className="text-sm font-medium text-ink">Duplicar esta jornada</p>
                   <input value={copyTo} onChange={(e) => setCopyTo(e.target.value)} placeholder="Fechas: 2026-12-02, 2026-12-09" className={`${field} mt-1`} />
                   <button onClick={duplicate} className={`${btnGhost} mt-2 h-9`}><Copy className="h-4 w-4" /> Duplicar</button>
                 </div>
                 <div className="mt-4 border-t border-border pt-3">
-                  <p className="text-sm font-medium text-premium">Bloquear horarios</p>
+                  <p className="text-sm font-medium text-ink">Bloquear horarios</p>
                   {dayBlocks.map((b) => (
-                    <p key={b.id} className="mt-1 flex items-center justify-between text-sm text-premium/75">
+                    <p key={b.id} className="mt-1 flex items-center justify-between text-sm text-ink-2">
                       {b.start_time}–{b.end_time}{b.professional ? ` · ${b.professional}` : ""}{b.reason ? ` · ${b.reason}` : ""}
-                      <button onClick={() => removeBlock(b.id)} className="text-xs text-destructive hover:underline">Quitar</button>
+                      <button onClick={() => removeBlock(b.id)} className="text-xs text-red-700 hover:underline">Quitar</button>
                     </p>
                   ))}
                   <div className="mt-2 grid grid-cols-2 gap-2">
@@ -387,13 +387,13 @@ export function JornadasView({ flash }: { flash: Flash }) {
                 </div>
               </>
             ) : (
-              <p className="text-sm text-premium/60">Elegí un día del calendario para abrir, editar, duplicar o cerrar su jornada.</p>
+              <p className="mt-1 text-sm text-ink-2">Elegí un día del calendario para abrir, editar, duplicar o cerrar su jornada.</p>
             )}
           </div>
 
           <div className={panel}>
-            <p className="font-medium text-premium">Repetir horarios</p>
-            <p className="mb-3 text-xs text-premium/55">Aplica las mismas franjas a varios días. Reemplaza lo que ya haya en esos días.</p>
+            <p className="font-medium text-ink">Repetir horarios</p>
+            <p className="mb-3 text-xs text-ink-3">Aplica las mismas franjas a varios días. Reemplaza lo que ya haya en esos días.</p>
             <div className="grid grid-cols-2 gap-2">
               <label className={lbl}>Desde<input type="date" value={bulk.from} onChange={(e) => setBulk({ ...bulk, from: e.target.value })} className={`${field} mt-1`} /></label>
               <label className={lbl}>Hasta<input type="date" value={bulk.to} onChange={(e) => setBulk({ ...bulk, to: e.target.value })} className={`${field} mt-1`} /></label>
@@ -403,7 +403,7 @@ export function JornadasView({ flash }: { flash: Flash }) {
                 const n = WEEKDAY_NUM[i]
                 const on = bulk.weekdays.includes(n)
                 return (
-                  <button key={w} onClick={() => setBulk({ ...bulk, weekdays: on ? bulk.weekdays.filter((x) => x !== n) : [...bulk.weekdays, n] })} className={`h-8 rounded-full border px-3 text-xs ${on ? "border-primary bg-primary text-primary-foreground" : "border-premium bg-white text-premium/70"}`}>{w}</button>
+                  <button key={w} onClick={() => setBulk({ ...bulk, weekdays: on ? bulk.weekdays.filter((x) => x !== n) : [...bulk.weekdays, n] })} className={`h-8 rounded-full border px-3 text-xs ${on ? "border-primary bg-primary text-primary-foreground" : "border-line bg-white text-ink-2"}`}>{w}</button>
                 )
               })}
             </div>
@@ -466,6 +466,8 @@ export function InboxView({ flash, onPatient }: { flash: Flash; onPatient: (id: 
     const d = await api<{ conversation: Conversation; messages: Msg[] }>(`/api/admin/conversations?id=${id}`)
     setOpen(d)
     setNewPatient({ name: d.conversation.contact_name, phone: d.conversation.phone })
+    // en pantallas chicas el detalle queda debajo de la lista: lo llevamos a la vista
+    if (window.innerWidth < 1024) requestAnimationFrame(() => document.getElementById("conv-detail")?.scrollIntoView({ behavior: "smooth", block: "start" }))
   }, [])
   useEffect(() => {
     if (!open?.conversation.human) return
@@ -500,8 +502,8 @@ export function InboxView({ flash, onPatient }: { flash: Flash; onPatient: (id: 
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-serif text-2xl font-bold text-premium">Conversaciones</h1>
-          <p className="text-sm text-premium/60">Lo que el asistente habla con las personas. Podés tomar la conversación, responder a mano y corregir respuestas para que no se repitan.</p>
+          <h1 className="font-serif text-[1.625rem] font-semibold leading-tight text-ink">Conversaciones</h1>
+          <p className="mt-1 text-sm text-ink-2">Lo que el asistente habla con las personas. Podés tomar la conversación, responder a mano y corregir respuestas para que no se repitan.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <input value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} placeholder="Buscar…" className={`${fieldInline} h-9 w-44`} />
@@ -509,31 +511,31 @@ export function InboxView({ flash, onPatient }: { flash: Flash; onPatient: (id: 
             <option value="">Todos los estados</option>
             {Object.entries(CONV_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
-          <label className="flex items-center gap-2 text-sm text-premium/70"><input type="checkbox" checked={filter.seguimiento} onChange={(e) => setFilter({ ...filter, seguimiento: e.target.checked })} className="accent-[#882626]" /> Necesitan seguimiento</label>
+          <label className="flex items-center gap-2 text-sm text-ink-2"><input type="checkbox" checked={filter.seguimiento} onChange={(e) => setFilter({ ...filter, seguimiento: e.target.checked })} className="accent-[#882626]" /> Necesitan seguimiento</label>
         </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
         <div className={`${panel} max-h-[75vh] overflow-y-auto p-0 sm:p-0`}>
           {list === null ? (
-            <p className="p-4 text-sm text-premium/60">Cargando…</p>
+            <p className="p-4 text-sm text-ink-3">Cargando…</p>
           ) : list.length === 0 ? (
-            <p className="p-4 text-sm text-premium/60">No hay conversaciones.</p>
+            <p className="p-4 text-sm text-ink-3">No hay conversaciones.</p>
           ) : (
             <ul className="divide-y divide-border">
               {list.map((c) => (
                 <li key={c.id}>
-                  <button onClick={() => openConv(c.id)} className={`w-full px-4 py-3 text-left hover:bg-secondary/40 ${open?.conversation.id === c.id ? "bg-secondary/50" : ""}`}>
+                  <button onClick={() => openConv(c.id)} className={`w-full px-4 py-3 text-left hover:bg-surface ${open?.conversation.id === c.id ? "bg-surface-2" : ""}`}>
                     <div className="flex items-center justify-between gap-2">
-                      <p className="truncate font-medium text-premium">{c.contact_name || "Sin nombre"}</p>
-                      <p className="shrink-0 text-[11px] text-premium/50">{shortDateTime(c.last_at)}</p>
+                      <p className="truncate font-medium text-ink">{c.contact_name || "Sin nombre"}</p>
+                      <p className="shrink-0 text-[11px] text-ink-3">{shortDateTime(c.last_at)}</p>
                     </div>
-                    <p className="truncate text-xs text-premium/60">{c.last_message}</p>
+                    <p className="truncate text-xs text-ink-3">{c.last_message}</p>
                     <div className="mt-1 flex flex-wrap gap-1">
-                      <span className={`${chip} border-premium text-[10px] text-premium/70`}>{CONV_STATUS[c.status] ?? c.status}</span>
+                      <span className={`${chip} border-line text-[10px] text-ink-2`}>{CONV_STATUS[c.status] ?? c.status}</span>
                       {c.booked && <span className={`${chip} border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700`}>Reservó</span>}
                       {c.human && <span className={`${chip} border-sky-200 bg-sky-50 text-[10px] text-sky-700`}>Atiende el equipo</span>}
-                      {c.interest && <span className="text-[10px] text-premium/50">{c.interest}</span>}
-                      {c.flagged_count > 0 && <span className="text-[10px] text-destructive">{c.flagged_count} corregidas</span>}
+                      {c.interest && <span className="text-[10px] text-ink-3">{c.interest}</span>}
+                      {c.flagged_count > 0 && <span className="text-[10px] text-red-700">{c.flagged_count} corregidas</span>}
                     </div>
                   </button>
                 </li>
@@ -542,11 +544,11 @@ export function InboxView({ flash, onPatient }: { flash: Flash; onPatient: (id: 
           )}
         </div>
         {open ? (
-          <div className={`${panel} space-y-4`}>
+          <div id="conv-detail" className={`${panel} scroll-mt-20 space-y-4`}>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="font-serif text-lg font-semibold text-premium">{open.conversation.contact_name || "Sin nombre"}</p>
-                <p className="text-sm text-premium/60">
+                <p className="text-[0.9375rem] font-semibold text-ink">{open.conversation.contact_name || "Sin nombre"}</p>
+                <p className="mt-1 text-sm text-ink-2">
                   {open.conversation.phone || "sin teléfono"} · iniciada {shortDateTime(open.conversation.created_at)}
                   {open.conversation.interest && ` · interés: ${open.conversation.interest}`}
                 </p>
@@ -564,21 +566,21 @@ export function InboxView({ flash, onPatient }: { flash: Flash; onPatient: (id: 
               </div>
             </div>
 
-            <div className="max-h-[48vh] space-y-2 overflow-y-auto rounded-xl border border-premium bg-premium-light/50 p-3">
+            <div className="max-h-[48vh] space-y-2 overflow-y-auto rounded-xl border border-line bg-surface p-3">
               {open.messages.map((m) => (
                 <div key={m.id} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
-                  <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.role === "user" ? "bg-primary text-primary-foreground" : m.role === "staff" ? "border border-sky-200 bg-sky-50 text-premium" : "border border-premium bg-white text-premium"} ${m.flagged ? "ring-2 ring-red-200" : ""}`}>
-                    {m.text || (m.card ? <span className="italic text-premium/60">[{m.card.type === "slots" ? `horarios de ${m.card.service}` : m.card.type === "services" ? `lista de servicios: ${m.card.title}` : m.card.type === "payment" ? "reserva con seña" : m.card.type === "confirmed" ? "turno confirmado" : m.card.type}]</span> : "")}
+                  <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.role === "user" ? "bg-primary text-primary-foreground" : m.role === "staff" ? "border border-sky-200 bg-sky-50 text-ink" : "border border-line bg-white text-ink"} ${m.flagged ? "ring-2 ring-red-200" : ""}`}>
+                    {m.text || (m.card ? <span className="italic text-ink-3">[{m.card.type === "slots" ? `horarios de ${m.card.service}` : m.card.type === "services" ? `lista de servicios: ${m.card.title}` : m.card.type === "payment" ? "reserva con seña" : m.card.type === "confirmed" ? "turno confirmado" : m.card.type}]</span> : "")}
                   </div>
-                  <p className="mt-0.5 text-[10px] text-premium/45">
+                  <p className="mt-0.5 text-[10px] text-ink-3">
                     {m.role === "staff" ? `Equipo · ${m.author}` : m.role === "assistant" ? "Asistente" : "Persona"} · {shortDateTime(m.created_at)}
                     {m.role === "assistant" && m.text && !m.flagged && <button onClick={() => setFixing({ id: m.id, text: "" })} className="ml-2 text-primary hover:underline">Corregir</button>}
                   </p>
-                  {m.flagged && <p className="max-w-[85%] text-[11px] text-destructive">Corrección guardada: {m.correction}</p>}
+                  {m.flagged && <p className="max-w-[85%] text-[11px] text-red-700">Corrección guardada: {m.correction}</p>}
                   {fixing?.id === m.id && (
                     <div className="mt-1 w-full max-w-[85%] space-y-1">
                       <textarea rows={3} value={fixing.text} onChange={(e) => setFixing({ ...fixing, text: e.target.value })} placeholder="¿Cuál debería haber sido la respuesta?" className={`${field} h-auto py-2`} />
-                      <p className="text-[11px] text-premium/55">Se guarda como pregunta frecuente y el asistente la usa desde la próxima conversación. Las correcciones no cambian precios ni políticas: eso se edita en su sección.</p>
+                      <p className="text-[11px] text-ink-3">Se guarda como pregunta frecuente y el asistente la usa desde la próxima conversación. Las correcciones no cambian precios ni políticas: eso se edita en su sección.</p>
                       <div className="flex gap-2">
                         <button onClick={() => { act({ correct: { messageId: m.id, text: fixing.text } }, "Corrección guardada en la base de conocimiento"); setFixing(null) }} className={`${btnPrimary} h-8`}>Guardar corrección</button>
                         <button onClick={() => setFixing(null)} className={`${btnGhost} h-8`}>Cancelar</button>
@@ -593,11 +595,11 @@ export function InboxView({ flash, onPatient }: { flash: Flash; onPatient: (id: 
               <input value={reply} onChange={(e) => setReply(e.target.value)} onKeyDown={(e) => e.key === "Enter" && reply.trim() && (act({ reply }, "Respuesta enviada"), setReply(""))} placeholder="Responder como equipo de Eterna…" className={field} />
               <button onClick={() => { act({ reply }, "Respuesta enviada"); setReply("") }} disabled={!reply.trim()} className={btnPrimary}><MessageSquare className="h-4 w-4" /> Enviar</button>
             </div>
-            <p className="text-xs text-premium/50">Al responder a mano tomás la conversación: la persona ve tu mensaje en el chat y el asistente no responde hasta que se la devuelvas.</p>
+            <p className="text-xs text-ink-3">Al responder a mano tomás la conversación: la persona ve tu mensaje en el chat y el asistente no responde hasta que se la devuelvas.</p>
 
             <div className="grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
               <div>
-                <p className="text-sm font-medium text-premium">Paciente</p>
+                <p className="text-sm font-medium text-ink">Paciente</p>
                 {open.conversation.patient_id ? (
                   <button onClick={() => onPatient(open.conversation.patient_id!)} className={`${btnGhost} mt-1 h-9`}>Ver ficha</button>
                 ) : (
@@ -610,14 +612,14 @@ export function InboxView({ flash, onPatient }: { flash: Flash; onPatient: (id: 
               </div>
               <label className={lbl}>Observaciones internas
                 <textarea rows={4} defaultValue={open.conversation.notes} key={open.conversation.id} onBlur={(e) => e.target.value !== open.conversation.notes && act({ notes: e.target.value }, "Observación guardada")} className={`${field} mt-1 h-auto py-2`} />
-                <label className="mt-1 flex items-center gap-2 text-sm text-premium/70">
+                <label className="mt-1 flex items-center gap-2 text-sm text-ink-2">
                   <input type="checkbox" checked={open.conversation.needs_followup} onChange={(e) => act({ needs_followup: e.target.checked }, "Actualizado")} className="accent-[#882626]" /> Necesita seguimiento
                 </label>
               </label>
             </div>
           </div>
         ) : (
-          <div className={panel}><p className="text-sm text-premium/60">Elegí una conversación para leerla.</p></div>
+          <div className={`${panel} hidden lg:block`}><Empty icon={<MessageSquare />} title="Elegí una conversación para leerla" text="Desde acá podés responder, tomar el control o corregir al asistente." /></div>
         )}
       </div>
     </section>
@@ -628,11 +630,85 @@ export function InboxView({ flash, onPatient }: { flash: Flash; onPatient: (id: 
 
 type Task = { id: number; title: string; description: string; kind: string; patient_id: number | null; booking_id: string | null; conversation_id: string | null; assignee: string; due_on: string | null; done: boolean; comments: Array<{ text: string; by: string; at: string }>; created_by: string; created_at: string }
 
+const TASK_KIND: Record<string, string> = { cobranza: "Cobranza", turnos: "Turnos", seguimiento: "Seguimiento", comercial: "Comercial", datos: "Datos", general: "General" }
+
+function TaskItem({ t, team, save, onPatient }: { t: Task; team: string[]; save: (t: Partial<Task> & { comment?: string }) => Promise<void>; onPatient: (id: number) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [comment, setComment] = useState("")
+  const [draft, setDraft] = useState({ assignee: t.assignee, due_on: t.due_on ?? "" })
+  const overdue = !t.done && !!t.due_on && t.due_on < todayAR()
+  const today = !t.done && t.due_on === todayAR()
+  return (
+    <li className="flex gap-3 py-3.5">
+      <input
+        type="checkbox"
+        checked={t.done}
+        onChange={(e) => save({ id: t.id, done: e.target.checked })}
+        className="mt-0.5 h-[18px] w-[18px] shrink-0 cursor-pointer rounded accent-[#882626]"
+        aria-label={`${t.done ? "Marcar como pendiente" : "Marcar como hecha"}: ${t.title}`}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p className={`text-sm font-medium ${t.done ? "text-ink-3 line-through" : "text-ink"}`}>{t.title}</p>
+          {t.kind && t.kind !== "general" && <Badge tone="neutral">{TASK_KIND[t.kind] ?? t.kind}</Badge>}
+          {overdue && <Badge tone="danger">Vencida</Badge>}
+          {today && <Badge tone="warning">Vence hoy</Badge>}
+        </div>
+        {t.description && <p className="mt-0.5 text-sm text-ink-2">{t.description}</p>}
+        <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-ink-3">
+          <span>{t.due_on ? `Vence ${shortDate(`${t.due_on}T12:00:00-03:00`)}` : "Sin fecha"}</span>
+          <span aria-hidden>·</span>
+          <span>{t.assignee ? `Responsable: ${t.assignee}` : "Sin responsable"}</span>
+          <span aria-hidden>·</span>
+          <span>{t.created_by === "sistema" ? "Creada por el sistema" : `Creada por ${t.created_by}`}</span>
+          {t.patient_id && (
+            <>
+              <span aria-hidden>·</span>
+              <button onClick={() => onPatient(t.patient_id!)} className={btnLink}>Ver paciente</button>
+            </>
+          )}
+        </p>
+        {t.comments.length > 0 && (
+          <ul className="mt-2 space-y-1 border-l-2 border-line pl-3">
+            {t.comments.map((c, i) => (
+              <li key={i} className="text-xs text-ink-2">
+                {c.text} <span className="text-ink-3">— {c.by}, {shortDateTime(c.at)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {editing && (
+          <div className="mt-3 grid gap-2 rounded-lg border border-line bg-surface/60 p-3 sm:grid-cols-[1fr_160px_auto]">
+            <Field label="Responsable">
+              <input list="team-list" value={draft.assignee} onChange={(e) => setDraft({ ...draft, assignee: e.target.value })} className={`${field} h-9`} />
+            </Field>
+            <Field label="Vence">
+              <input type="date" value={draft.due_on} onChange={(e) => setDraft({ ...draft, due_on: e.target.value })} className={`${field} h-9`} />
+            </Field>
+            <div className="flex items-end gap-2">
+              <button onClick={() => save({ id: t.id, assignee: draft.assignee, due_on: draft.due_on || null }).then(() => setEditing(false))} className={`${btnPrimary} h-9`}>Guardar</button>
+              <button onClick={() => setEditing(false)} className={`${btnGhost} h-9`}>Cancelar</button>
+            </div>
+            <div className="flex gap-2 sm:col-span-3">
+              <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Agregar un comentario" aria-label="Comentario" className={`${field} h-9`} onKeyDown={(e) => e.key === "Enter" && comment.trim() && save({ id: t.id, comment }).then(() => setComment(""))} />
+              <button disabled={!comment.trim()} onClick={() => save({ id: t.id, comment }).then(() => setComment(""))} className={`${btnGhost} h-9`}>Comentar</button>
+            </div>
+          </div>
+        )}
+      </div>
+      {!editing && (
+        <button onClick={() => setEditing(true)} className={`${btnSmall} shrink-0 self-start`} aria-label={`Editar o comentar la tarea ${t.title}`}>
+          Editar
+        </button>
+      )}
+    </li>
+  )
+}
+
 export function TasksView({ flash, onPatient }: { flash: Flash; onPatient: (id: number) => void }) {
   const [tasks, setTasks] = useState<Task[] | null>(null)
   const [show, setShow] = useState<"pendientes" | "hechas" | "todas">("pendientes")
   const [draft, setDraft] = useState({ title: "", description: "", assignee: "", due_on: todayAR() })
-  const [comment, setComment] = useState<Record<number, string>>({})
   const [team, setTeam] = useState<string[]>([])
 
   const load = useCallback(() => {
@@ -653,62 +729,46 @@ export function TasksView({ flash, onPatient }: { flash: Flash; onPatient: (id: 
     }
   }
   const visible = (tasks ?? []).filter((t) => (show === "todas" ? true : show === "hechas" ? t.done : !t.done))
-  const overdue = (t: Task) => !t.done && t.due_on && t.due_on < todayAR()
+  const pendingCount = (tasks ?? []).filter((t) => !t.done).length
+  const create = () => {
+    if (!draft.title.trim()) return flash("Escribí qué hay que hacer", true)
+    save(draft).then(() => setDraft({ title: "", description: "", assignee: "", due_on: todayAR() }))
+  }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-serif text-2xl font-bold text-premium">Tareas y seguimientos</h1>
-          <p className="text-sm text-premium/60">Las tareas con origen «sistema» se crean solas según las reglas de Configuración (señas, confirmaciones, saldos, tratamientos sin continuar, consultas sin reserva). Nunca se envían mensajes automáticos.</p>
-        </div>
-        <select value={show} onChange={(e) => setShow(e.target.value as typeof show)} className={`${fieldInline} h-9`}>
-          <option value="pendientes">Pendientes</option>
-          <option value="hechas">Completadas</option>
-          <option value="todas">Todas</option>
-        </select>
-      </div>
-      <div className={`${panel} grid gap-2 sm:grid-cols-[1fr_1fr_160px_150px_auto]`}>
-        <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="Nueva tarea…" className={field} />
-        <input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Descripción" className={field} />
-        <input list="team-list" value={draft.assignee} onChange={(e) => setDraft({ ...draft, assignee: e.target.value })} placeholder="Responsable" className={field} />
+    <section className="space-y-5">
+      <PageHeader
+        title="Tareas y seguimientos"
+        description="Las del sistema se crean solas según las reglas de Configuración (confirmaciones, saldos, tratamientos sin continuar, consultas sin reserva). No se envían mensajes automáticos."
+        actions={<Segmented label="Mostrar" value={show} onChange={setShow} options={[["pendientes", `Pendientes${tasks ? ` (${pendingCount})` : ""}`], ["hechas", "Hechas"], ["todas", "Todas"]]} />}
+      />
+      <Card title="Nueva tarea">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            create()
+          }}
+          className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_180px_160px_auto] lg:items-end"
+        >
+          <Field label="Qué hay que hacer"><input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} className={field} placeholder="Ej.: llamar a Ana por el saldo" /></Field>
+          <Field label="Detalle (opcional)"><input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} className={field} /></Field>
+          <Field label="Responsable"><input list="team-list" value={draft.assignee} onChange={(e) => setDraft({ ...draft, assignee: e.target.value })} className={field} /></Field>
+          <Field label="Vence"><input type="date" value={draft.due_on} onChange={(e) => setDraft({ ...draft, due_on: e.target.value })} className={field} /></Field>
+          <button type="submit" className={btnPrimary}><Plus /> Crear</button>
+        </form>
         <datalist id="team-list">{team.map((p) => <option key={p} value={p} />)}</datalist>
-        <input type="date" value={draft.due_on} onChange={(e) => setDraft({ ...draft, due_on: e.target.value })} className={field} />
-        <button onClick={() => draft.title.trim() && save(draft).then(() => setDraft({ title: "", description: "", assignee: "", due_on: todayAR() }))} className={btnPrimary}><Plus className="h-4 w-4" /> Crear</button>
-      </div>
-      <div className={panel}>
+      </Card>
+      <Card padded={false}>
         {tasks === null ? (
-          <p className="text-sm text-premium/60">Cargando…</p>
+          <div className="p-4"><Loading /></div>
         ) : visible.length === 0 ? (
-          <p className="text-sm text-premium/60">No hay tareas.</p>
+          <Empty title={show === "pendientes" ? "No hay tareas pendientes" : "No hay tareas para mostrar"} text={show === "pendientes" ? "Cuando el sistema detecte algo para seguir, aparece acá." : undefined} />
         ) : (
-          <ul className="divide-y divide-border">
-            {visible.map((t) => (
-              <li key={t.id} className="flex gap-3 py-3">
-                <input type="checkbox" checked={t.done} onChange={(e) => save({ id: t.id, done: e.target.checked })} className="mt-1 h-4 w-4 accent-[#882626]" aria-label="Completada" />
-                <div className="min-w-0 flex-1">
-                  <p className={`font-medium ${t.done ? "text-premium/45 line-through" : "text-premium"}`}>{t.title}</p>
-                  {t.description && <p className="text-sm text-premium/65">{t.description}</p>}
-                  <p className="mt-0.5 text-xs text-premium/50">
-                    {t.due_on && <span className={overdue(t) ? "font-medium text-destructive" : ""}>Vence {shortDate(`${t.due_on}T12:00:00-03:00`)} · </span>}
-                    {t.assignee ? `Responsable: ${t.assignee}` : "Sin responsable"} · Origen: {t.created_by}
-                    {t.patient_id && <> · <button onClick={() => onPatient(t.patient_id!)} className="text-primary hover:underline">ver paciente</button></>}
-                  </p>
-                  {t.comments.map((c, i) => <p key={i} className="mt-1 text-xs text-premium/70">💬 {c.text} <span className="text-premium/40">— {c.by}, {shortDateTime(c.at)}</span></p>)}
-                  <div className="mt-1 flex gap-2">
-                    <input value={comment[t.id] ?? ""} onChange={(e) => setComment({ ...comment, [t.id]: e.target.value })} placeholder="Agregar comentario" className={`${fieldInline} h-8 flex-1 text-xs`} />
-                    <button onClick={() => comment[t.id]?.trim() && save({ id: t.id, comment: comment[t.id] }).then(() => setComment({ ...comment, [t.id]: "" }))} className={btnSmall}>Comentar</button>
-                  </div>
-                </div>
-                <div className="flex shrink-0 flex-col gap-1">
-                  <input list="team-list" defaultValue={t.assignee} onBlur={(e) => e.target.value !== t.assignee && save({ id: t.id, assignee: e.target.value })} placeholder="Responsable" className={`${fieldInline} h-8 w-36 text-xs`} />
-                  <input type="date" defaultValue={t.due_on ?? ""} onBlur={(e) => e.target.value !== (t.due_on ?? "") && save({ id: t.id, due_on: e.target.value || null })} className={`${fieldInline} h-8 w-36 text-xs`} />
-                </div>
-              </li>
-            ))}
+          <ul className="divide-y divide-line px-4 sm:px-5">
+            {visible.map((t) => <TaskItem key={t.id} t={t} team={team} save={save} onPatient={onPatient} />)}
           </ul>
         )}
-      </div>
+      </Card>
     </section>
   )
 }
@@ -736,21 +796,21 @@ function ReportTable({ title, rows, section, from, to, bar }: { title: string; r
   return (
     <div className={panel}>
       <div className="flex items-center justify-between gap-2">
-        <p className="font-medium text-premium">{title}</p>
+        <p className="font-medium text-ink">{title}</p>
         <a href={`/api/admin/insights?vista=reportes&desde=${from}&hasta=${to}&seccion=${section}&formato=csv`} className={btnSmall}><Download className="h-3.5 w-3.5" /> CSV</a>
       </div>
       {rows.length === 0 ? (
-        <p className="mt-2 text-sm text-premium/60">Sin datos en el período.</p>
+        <p className="mt-2 text-sm text-ink-3">Sin datos en el período.</p>
       ) : (
         <div className="mt-2 overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="text-left text-xs text-premium/55">
+            <thead className="text-left text-xs text-ink-3">
               <tr>{Object.keys(rows[0]).map((k) => <th key={k} className="px-2 py-1.5 font-medium capitalize">{k.replace(/_/g, " ")}</th>)}{bar && <th />}</tr>
             </thead>
             <tbody className="divide-y divide-border">
               {rows.map((r, i) => (
                 <tr key={i}>
-                  {Object.entries(r).map(([k, v]) => <td key={k} className="px-2 py-1.5 text-premium/80">{MONEY.has(k) ? formatARS(Number(v)) : k === "ocupacion" ? `${v}%` : String(v)}</td>)}
+                  {Object.entries(r).map(([k, v]) => <td key={k} className="px-2 py-1.5 text-ink-2">{MONEY.has(k) ? formatARS(Number(v)) : k === "ocupacion" ? `${v}%` : String(v)}</td>)}
                   {bar && <td className="w-1/4 px-2"><div className="h-2 rounded-full bg-primary/70" style={{ width: `${(Number(r[bar]) * 100) / max}%` }} /></td>}
                 </tr>
               ))}
@@ -784,8 +844,8 @@ export function ReportsView({ flash }: { flash: Flash }) {
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-serif text-2xl font-bold text-premium">Reportes</h1>
-          <p className="text-sm text-premium/60">Calculados con los turnos y pagos reales. «Vendido» es lo acordado en turnos firmes; «cobrado» es el dinero efectivamente registrado.</p>
+          <h1 className="font-serif text-[1.625rem] font-semibold leading-tight text-ink">Reportes</h1>
+          <p className="mt-1 text-sm text-ink-2">Calculados con los turnos y pagos reales. «Vendido» es lo acordado en turnos firmes; «cobrado» es el dinero efectivamente registrado.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={() => preset("mes")} className={btnSmall}>Este mes</button>
@@ -796,7 +856,7 @@ export function ReportsView({ flash }: { flash: Flash }) {
         </div>
       </div>
       {!r || !s ? (
-        <p className="text-sm text-premium/60">Calculando…</p>
+        <p className="mt-1 text-sm text-ink-2">Calculando…</p>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -810,7 +870,7 @@ export function ReportsView({ flash }: { flash: Flash }) {
               ["Ausencias", String(s.no_show)],
               ["Conversión chat → reserva", `${r.commercial.conversion}% (${r.commercial.consultas_con_reserva}/${r.commercial.consultas})`],
             ].map(([k, v]) => (
-              <div key={k} className={`${panel} p-4 sm:p-4`}><p className="text-xs text-premium/55">{k}</p><p className="mt-1 font-serif text-xl font-semibold text-premium">{v}</p></div>
+              <div key={k} className={`${panel} p-4 sm:p-4`}><p className="text-xs text-ink-3">{k}</p><p className="mt-1 font-serif text-xl font-semibold text-ink">{v}</p></div>
             ))}
           </div>
           <ReportTable title="Evolución mensual (últimos 12 meses)" rows={r.monthly} section="monthly" from={from} to={to} bar="cobrado" />
@@ -825,8 +885,8 @@ export function ReportsView({ flash }: { flash: Flash }) {
             <ReportTable title="Horarios más solicitados" rows={r.byHour} section="byHour" from={from} to={to} bar="turnos" />
           </div>
           <div className={panel}>
-            <p className="font-medium text-premium">Comercial</p>
-            <p className="mt-1 text-sm text-premium/75">
+            <p className="font-medium text-ink">Comercial</p>
+            <p className="mt-1 text-sm text-ink-2">
               Reservas por chat: {r.commercial.reservas_chat} · por la web: {r.commercial.reservas_web} · cargadas por el equipo: {r.commercial.reservas_admin} · pacientes recurrentes (2+ sesiones): {r.commercial.recurrentes} · reprogramaciones: {s.rescheduled}
             </p>
           </div>
@@ -850,8 +910,8 @@ export function SecurityView({ flash }: { flash: Flash }) {
   return (
     <section className="space-y-4">
       <div>
-        <h1 className="font-serif text-2xl font-bold text-premium">Usuarios y seguridad</h1>
-        <p className="text-sm text-premium/60">Quién entra al panel y qué puede hacer, el registro de cambios y la copia de seguridad.</p>
+        <h1 className="font-serif text-[1.625rem] font-semibold leading-tight text-ink">Usuarios y seguridad</h1>
+        <p className="mt-1 text-sm text-ink-2">Quién entra al panel y qué puede hacer, el registro de cambios y la copia de seguridad.</p>
       </div>
       <RecordList
         entity="usuarios"
@@ -870,14 +930,14 @@ export function SecurityView({ flash }: { flash: Flash }) {
       />
       <div className={panel}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="flex items-center gap-2 font-medium text-premium"><ShieldCheck className="h-4 w-4" /> Copia de seguridad</p>
+          <p className="flex items-center gap-2 font-medium text-ink"><ShieldCheck className="h-4 w-4" /> Copia de seguridad</p>
           <a href="/api/admin/insights?vista=respaldo" className={btnGhost}><Download className="h-4 w-4" /> Descargar respaldo completo (JSON)</a>
         </div>
-        <p className="mt-1 text-sm text-premium/60">Incluye pacientes, turnos, pagos, promociones, servicios, jornadas, conversaciones, tareas y auditoría. Guardalo en un lugar seguro: contiene datos personales. Además conviene activar los respaldos automáticos de la base en Railway.</p>
+        <p className="mt-1 text-sm text-ink-3">Incluye pacientes, turnos, pagos, promociones, servicios, jornadas, conversaciones, tareas y auditoría. Guardalo en un lugar seguro: contiene datos personales. Además conviene activar los respaldos automáticos de la base en Railway.</p>
       </div>
       <div className={panel}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="font-medium text-premium">Registro de actividad</p>
+          <p className="font-medium text-ink">Registro de actividad</p>
           <div className="flex gap-2">
             <select value={entity} onChange={(e) => setEntity(e.target.value)} className={`${fieldInline} h-9`}>
               <option value="">Todo</option>
@@ -887,21 +947,21 @@ export function SecurityView({ flash }: { flash: Flash }) {
           </div>
         </div>
         {log === null ? (
-          <p className="mt-2 text-sm text-premium/60">Cargando…</p>
+          <p className="mt-2 text-sm text-ink-3">Cargando…</p>
         ) : (
           <ul className="mt-2 divide-y divide-border text-sm">
             {log.map((l) => (
               <li key={l.id} className="py-2">
                 <button onClick={() => setOpenRow(openRow === l.id ? null : l.id)} className="flex w-full flex-wrap gap-x-3 text-left">
-                  <span className="text-premium/50">{shortDateTime(l.created_at)}</span>
-                  <span className="font-medium text-premium">{l.actor}</span>
-                  <span className="text-premium/80">{l.action} {l.entity}</span>
-                  <span className="truncate text-premium/45">{l.entity_id}</span>
+                  <span className="text-ink-3">{shortDateTime(l.created_at)}</span>
+                  <span className="font-medium text-ink">{l.actor}</span>
+                  <span className="text-ink-2">{l.action} {l.entity}</span>
+                  <span className="truncate text-ink-3">{l.entity_id}</span>
                 </button>
                 {openRow === l.id && (
                   <div className="mt-1 grid gap-2 text-xs sm:grid-cols-2">
-                    <pre className="overflow-x-auto rounded bg-stone-50 p-2">Antes: {JSON.stringify(l.before, null, 1)}</pre>
-                    <pre className="overflow-x-auto rounded bg-stone-50 p-2">Después: {JSON.stringify(l.after, null, 1)}</pre>
+                    <pre className="overflow-x-auto rounded bg-surface p-2">Antes: {JSON.stringify(l.before, null, 1)}</pre>
+                    <pre className="overflow-x-auto rounded bg-surface p-2">Después: {JSON.stringify(l.after, null, 1)}</pre>
                   </div>
                 )}
               </li>
@@ -915,13 +975,14 @@ export function SecurityView({ flash }: { flash: Flash }) {
 
 /* ───────────── Indicadores del período y alertas (para Inicio) ───────────── */
 
-type Panel = {
+export type Panel = {
   alerts: { promosExpiring: Array<{ id: number; title: string; ends_on: string }>; inactivePatients: Array<{ id: number; name: string; last: string }>; withoutNextSession: Array<{ id: number; name: string }>; partialPayments: Array<{ id: string; name: string; balance: number }>; incompleteProfiles: Array<{ id: number; name: string }>; freeSlotsNextWeek: number }
   metrics: Record<string, number>
   followUpsCreated: number
 }
 
-export function PeriodPanel({ flash, onPatient, go }: { flash: Flash; onPatient: (id: number) => void; go: (tab: string) => void }) {
+/** Indicadores de un período elegido (hoy, semana, mes o personalizado). */
+export function PeriodPanel({ flash }: { flash: Flash }) {
   const [range, setRange] = useState<"dia" | "semana" | "mes" | "custom">("mes")
   const [custom, setCustom] = useState({ from: `${todayAR().slice(0, 7)}-01`, to: todayAR() })
   const [d, setD] = useState<Panel | null>(null)
@@ -934,64 +995,83 @@ export function PeriodPanel({ flash, onPatient, go }: { flash: Flash; onPatient:
   useEffect(() => {
     api<Panel>(`/api/admin/insights?vista=panel&desde=${period.from}&hasta=${period.to}`).then(setD).catch(() => flash("No se pudieron cargar los indicadores", true))
   }, [period.from, period.to, flash])
-  if (!d) return null
-  const m = d.metrics
-  const names = (xs: Array<{ id: number; name: string }>) =>
-    xs.slice(0, 8).map((x, i) => (
-      <span key={x.id}>{i > 0 && ", "}<button onClick={() => onPatient(x.id)} className="text-primary hover:underline">{x.name}</button></span>
-    ))
-  const a = d.alerts
+  const m = d?.metrics
+  const rows: Array<[string, React.ReactNode]> = m
+    ? [
+        ["Turnos", m.bookings],
+        ["Sin confirmar", m.pending_confirmation],
+        ["Cancelados", m.cancelled],
+        ["Reprogramados", m.rescheduled],
+        ["Ausentes", m.no_show],
+        ["Activos", m.active_patients],
+        ["Nuevos", m.new_patients],
+        ["Vendido", formatARS(m.sold)],
+        ["Cobrado", formatARS(m.collected)],
+        ["Libres en 7 días", d!.alerts.freeSlotsNextWeek],
+      ]
+    : []
   return (
-    <div className="space-y-4">
-      <div className={panel}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="font-medium text-premium">Indicadores del período</p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {(["dia", "semana", "mes", "custom"] as const).map((k) => (
-              <button key={k} onClick={() => setRange(k)} className={`h-8 rounded-md px-3 text-xs ${range === k ? "bg-primary text-primary-foreground" : "border border-premium text-premium/70"}`}>
-                {{ dia: "Hoy", semana: "Semana", mes: "Mes", custom: "Personalizado" }[k]}
-              </button>
-            ))}
-            {range === "custom" && (
-              <>
-                <input type="date" value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} className={`${fieldInline} h-8 text-xs`} />
-                <input type="date" value={custom.to} onChange={(e) => setCustom({ ...custom, to: e.target.value })} className={`${fieldInline} h-8 text-xs`} />
-              </>
-            )}
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5">
-          {[
-            ["Turnos", m.bookings],
-            ["Sin confirmar", m.pending_confirmation],
-            ["Cancelados", m.cancelled],
-            ["Reprogramados", m.rescheduled],
-            ["Ausentes", m.no_show],
-            ["Pacientes activos", m.active_patients],
-            ["Pacientes nuevos", m.new_patients],
-            ["Vendido", formatARS(m.sold)],
-            ["Cobrado", formatARS(m.collected)],
-            ["Horarios libres próximos 7 días", a.freeSlotsNextWeek],
-          ].map(([k, v]) => (
-            <div key={String(k)} className="rounded-xl border border-premium bg-premium-light/60 p-3">
-              <p className="text-[11px] text-premium/55">{k}</p>
-              <p className="mt-0.5 font-medium text-premium">{v}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-      {(a.promosExpiring.length > 0 || a.inactivePatients.length > 0 || a.withoutNextSession.length > 0 || a.partialPayments.length > 0 || a.incompleteProfiles.length > 0) && (
-        <div className={`${panel} space-y-1.5 text-sm text-premium/80`}>
-          <p className="flex items-center gap-2 font-medium text-premium"><CalendarCheck className="h-4 w-4 text-primary" /> Alertas administrativas</p>
-          {a.promosExpiring.length > 0 && <p>· Promociones por vencer: {a.promosExpiring.map((p) => `${p.title} (${p.ends_on})`).join(", ")} <button onClick={() => go("promos")} className="text-primary hover:underline">ver</button></p>}
-          {a.withoutNextSession.length > 0 && <p>· Con sesiones y sin fecha para continuar ({a.withoutNextSession.length}): {names(a.withoutNextSession)}</p>}
-          {a.inactivePatients.length > 0 && <p>· Hace tiempo que no vuelven ({a.inactivePatients.length}): {names(a.inactivePatients)}</p>}
-          {a.partialPayments.length > 0 && <p>· Sesiones realizadas con saldo pendiente: {a.partialPayments.slice(0, 8).map((p) => `${p.name} (resta ${formatARS(p.balance)})`).join(", ")}</p>}
-          {a.incompleteProfiles.length > 0 && <p>· Fichas incompletas: {names(a.incompleteProfiles)}</p>}
-          {d.followUpsCreated > 0 && <p className="text-xs text-premium/55">Se crearon {d.followUpsCreated} tareas de seguimiento nuevas. <button onClick={() => go("tareas")} className="text-primary hover:underline">Ver tareas</button></p>}
+    <Card
+      title="Indicadores del período"
+      actions={<Segmented label="Período" value={range} onChange={setRange} options={[["dia", "Hoy"], ["semana", "Semana"], ["mes", "Mes"], ["custom", "Otro"]]} />}
+    >
+      {range === "custom" && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <input type="date" aria-label="Desde" value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} className={`${fieldInline} h-9`} />
+          <span className="text-sm text-ink-3">a</span>
+          <input type="date" aria-label="Hasta" value={custom.to} onChange={(e) => setCustom({ ...custom, to: e.target.value })} className={`${fieldInline} h-9`} />
         </div>
       )}
-    </div>
+      {!d ? (
+        <Loading rows={2} />
+      ) : (
+        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-5 xl:grid-cols-5">
+          {rows.map(([k, v]) => (
+            <div key={k} className="bg-white px-3 py-2.5">
+              <dt className="truncate text-xs text-ink-3" title={k}>{k}</dt>
+              <dd className="mt-0.5 text-[0.9375rem] font-semibold tabular-nums text-ink">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </Card>
+  )
+}
+
+/** Alertas administrativas como lista accionable (para la columna «Para atender» de Inicio). */
+export function useAdminAlerts(flash: Flash) {
+  const [d, setD] = useState<Panel | null>(null)
+  useEffect(() => {
+    api<Panel>("/api/admin/insights?vista=panel").then(setD).catch(() => flash("No se pudieron cargar las alertas", true))
+  }, [flash])
+  return d
+}
+
+export function AlertItems({ d, onPatient, go }: { d: Panel; onPatient: (id: number) => void; go: (tab: string) => void }) {
+  const a = d.alerts
+  const names = (xs: Array<{ id: number; name: string }>) =>
+    xs.slice(0, 6).map((x, i) => (
+      <span key={x.id}>
+        {i > 0 && ", "}
+        <button onClick={() => onPatient(x.id)} className={btnLink}>{x.name}</button>
+      </span>
+    ))
+  const items: Array<[string, React.ReactNode]> = []
+  if (a.promosExpiring.length) items.push(["Promociones por vencer", <>{a.promosExpiring.map((p) => `${p.title} (${p.ends_on.slice(8)}/${p.ends_on.slice(5, 7)})`).join(", ")} · <button onClick={() => go("promos")} className={btnLink}>ver</button></>])
+  if (a.partialPayments.length) items.push(["Sesiones realizadas con saldo", a.partialPayments.slice(0, 6).map((p) => `${p.name} (${formatARS(p.balance)})`).join(", ")])
+  if (a.withoutNextSession.length) items.push([`Sin fecha para continuar (${a.withoutNextSession.length})`, names(a.withoutNextSession)])
+  if (a.inactivePatients.length) items.push([`Hace tiempo que no vuelven (${a.inactivePatients.length})`, names(a.inactivePatients)])
+  if (a.incompleteProfiles.length) items.push([`Fichas incompletas (${a.incompleteProfiles.length})`, names(a.incompleteProfiles)])
+  if (d.followUpsCreated > 0) items.push(["Seguimientos nuevos", <>Se crearon {d.followUpsCreated} tareas · <button onClick={() => go("tareas")} className={btnLink}>ver tareas</button></>])
+  return (
+    <>
+      {items.map(([k, v]) => (
+        <li key={k} className="py-2.5">
+          <p className="text-xs font-medium text-ink-2">{k}</p>
+          <p className="mt-0.5 text-sm text-ink">{v}</p>
+        </li>
+      ))}
+    </>
   )
 }
 
@@ -1008,12 +1088,12 @@ export function AssistantPreview() {
     <div className={panel}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="font-medium text-premium">Lo que sabe el asistente ahora</p>
-          <p className="text-sm text-premium/60">Se arma en cada conversación con los precios, promociones vigentes, preguntas frecuentes, equipos, políticas y horarios actuales. Así podés verificar que un cambio ya le llegó.</p>
+          <p className="font-medium text-ink">Lo que sabe el asistente ahora</p>
+          <p className="mt-1 text-sm text-ink-2">Se arma en cada conversación con los precios, promociones vigentes, preguntas frecuentes, equipos, políticas y horarios actuales. Así podés verificar que un cambio ya le llegó.</p>
         </div>
         <button onClick={load} className={btnGhost}>{open ? "Ocultar" : "Ver"}</button>
       </div>
-      {open && <pre className="mt-3 max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-xl bg-stone-50 p-3 text-xs text-premium/80">{text ?? "Cargando…"}</pre>}
+      {open && <pre className="mt-3 max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-xl bg-surface p-3 text-xs text-ink-2">{text ?? "Cargando…"}</pre>}
     </div>
   )
 }
