@@ -12,27 +12,47 @@ type Message = { id: number; role: "user" | "assistant"; text?: string; card?: C
 
 const WELCOME = "Hola, soy la asistente de Eterna. Puedo contarte sobre nuestros tratamientos, mostrarte turnos libres y ayudarte a reservar. ¿En qué te ayudo?"
 const SUGGESTIONS = ["¿Qué servicios tienen?", "Quiero reservar depilación láser", "¿Cómo me preparo para el láser?", "¿Dónde quedan?"]
-const STORAGE_KEY = "eterna-chat-v2"
+const STORAGE_KEY = "eterna-chat-v3"
+/** La conversación se conserva en el dispositivo este tiempo desde el último movimiento. */
+const STORAGE_TTL_MS = 7 * 24 * 3600_000
+
+type BookingState = { state: string; expiresAt: string | null }
+type Stored = { messages: Message[]; responseId?: string; conversationId?: string; staffSeen?: number; draft?: string; savedAt?: number }
 
 const ERRORS: Record<string, string> = {
   sin_modelo: "El chat no está disponible en este momento. Escribinos por WhatsApp y te respondemos.",
   demasiados_mensajes: "Recibimos muchos mensajes seguidos. Esperá unos minutos y probá de nuevo.",
 }
 
-function readStored(): { messages: Message[]; responseId?: string; conversationId?: string; staffSeen?: number } | null {
+function readStored(): Stored | null {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : null
+    // localStorage sobrevive a cerrar la pestaña o el navegador; sessionStorage (versión anterior) se migra una vez
+    const raw = localStorage.getItem(STORAGE_KEY) ?? sessionStorage.getItem("eterna-chat-v2")
+    if (!raw) return null
+    const data = JSON.parse(raw) as Stored
+    if (!Array.isArray(data.messages) || !data.messages.length) return null
+    if (data.savedAt && Date.now() - data.savedAt > STORAGE_TTL_MS) {
+      localStorage.removeItem(STORAGE_KEY)
+      return null
+    }
+    return data
   } catch {
     return null
   }
+}
+
+function clearStored() {
+  try {
+    localStorage.removeItem(STORAGE_KEY)
+    sessionStorage.removeItem("eterna-chat-v2")
+  } catch {}
 }
 
 function RichText({ text }: { text: string }) {
   return <>{text.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <strong key={i} className="font-semibold">{part}</strong> : part))}</>
 }
 
-function Card({ card, send, onReceipt }: { card: ChatCard; send: (text: string) => void; onReceipt: (outcome: ReceiptOutcome) => void }) {
+function Card({ card, send, onReceipt, booking }: { card: ChatCard; send: (text: string) => void; onReceipt: (outcome: ReceiptOutcome) => void; booking?: BookingState }) {
   const base = "w-full rounded-2xl border border-premium bg-white p-5 shadow-premium"
   if (card.type === "services") {
     const groups = new Map<string, typeof card.items>()
@@ -102,7 +122,20 @@ function Card({ card, send, onReceipt }: { card: ChatCard; send: (text: string) 
             </div>
           ))}
         </dl>
-        {card.type === "payment" &&
+        {card.type === "payment" && booking && ["expired", "cancelled"].includes(booking.state) && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="font-medium">{booking.state === "expired" ? "Esta reserva venció" : "Esta reserva fue cancelada"}</p>
+            <p className="mt-0.5">El horario se liberó. Escribime y buscamos otro turno.</p>
+            <button type="button" onClick={() => send("Quiero reservar de nuevo")} className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100">Buscar otro turno</button>
+          </div>
+        )}
+        {card.type === "payment" && booking && ["confirmed", "done", "reserved"].includes(booking.state) && (
+          <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-900">Tu seña ya está registrada y el turno está confirmado.</p>
+        )}
+        {card.type === "payment" && booking && booking.state === "pending_review" && (
+          <p className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Recibimos tu comprobante. El equipo lo está revisando y te confirma el turno.</p>
+        )}
+        {card.type === "payment" && !(booking && ["expired", "cancelled", "confirmed", "done", "reserved", "pending_review"].includes(booking.state)) &&
           (card.checkoutUrl ? (
             <a href={card.checkoutUrl} className="mt-4 flex h-12 items-center justify-center rounded-xl bg-[#009ee3] px-5 text-sm font-semibold text-white transition-premium hover:bg-[#0089c7]">
               Pagar seña de {formatARS(card.amount)} con Mercado Pago
@@ -153,6 +186,8 @@ export default function ChatPage() {
   const conversationId = useRef<string | undefined>(undefined)
   const staffSeen = useRef(0)
   const [human, setHuman] = useState(false)
+  const [bookingStates, setBookingStates] = useState<Record<string, BookingState>>({})
+  const [restored, setRestored] = useState(false)
   const nextId = useRef(1)
   const endRef = useRef<HTMLDivElement>(null)
   const boxRef = useRef<HTMLTextAreaElement>(null)
@@ -169,6 +204,16 @@ export default function ChatPage() {
       conversationId.current = stored.conversationId
       staffSeen.current = stored.staffSeen ?? 0
       nextId.current = Math.max(...stored.messages.map((m) => m.id)) + 1
+      if (stored.draft) setInput(stored.draft)
+      // reservas con seña pendiente: se consulta su estado real para no mostrar un botón de pago vencido
+      const ids = Array.from(new Set(stored.messages.flatMap((m) => (m.card?.type === "payment" ? [m.card.bookingId] : []))))
+      for (const id of ids) {
+        fetch(`/api/reserva/${id}/estado`)
+          .then((r) => (r.ok ? (r.json() as Promise<BookingState>) : null))
+          .then((st) => st && setBookingStates((v) => ({ ...v, [id]: st })))
+          .catch(() => {})
+      }
+      if (stored.messages.length > 1) setRestored(true)
     }
     const day = params.get("fecha")
     const q = params.get("q")?.trim().slice(0, 300)
@@ -178,15 +223,43 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // se guarda en el dispositivo después de cada mensaje y mientras se escribe (el borrador también se conserva)
   useEffect(() => {
+    if (!started.current) return
     try {
-      sessionStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ messages: messages.slice(-60), responseId: responseId.current, conversationId: conversationId.current, staffSeen: staffSeen.current }),
-      )
-    } catch {}
+      const data: Stored = {
+        messages: messages.slice(-60),
+        responseId: responseId.current,
+        conversationId: conversationId.current,
+        staffSeen: staffSeen.current,
+        draft: input.slice(0, 1500),
+        savedAt: Date.now(),
+      }
+      if (messages.length > 1 || input) localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    } catch {
+      // sin espacio o modo privado: el chat sigue funcionando, solo que sin guardado
+    }
+  }, [messages, input, busy])
+  useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
   }, [messages, busy])
+
+  // si hay otra pestaña abierta con el mismo chat, se mantiene sincronizado
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY || !e.newValue || busy) return
+      try {
+        const d = JSON.parse(e.newValue) as Stored
+        if (!d.messages?.length || d.messages.length <= messages.length) return
+        setMessages(d.messages)
+        responseId.current = d.responseId
+        conversationId.current = d.conversationId
+        nextId.current = Math.max(...d.messages.map((m) => m.id)) + 1
+      } catch {}
+    }
+    window.addEventListener("storage", onStorage)
+    return () => window.removeEventListener("storage", onStorage)
+  }, [messages.length, busy])
 
   const add = (items: Array<Omit<Message, "id">>) => setMessages((v) => [...v, ...items.map((m) => ({ ...m, id: nextId.current++ }))])
 
@@ -250,9 +323,10 @@ export default function ChatPage() {
     setHuman(false)
     nextId.current = 1
     setMessages([{ id: 0, role: "assistant", text: WELCOME }])
-    try {
-      sessionStorage.removeItem(STORAGE_KEY)
-    } catch {}
+    setInput("")
+    setRestored(false)
+    setBookingStates({})
+    clearStored()
   }
 
   return (
@@ -275,10 +349,16 @@ export default function ChatPage() {
 
       <main className="flex-1 overflow-y-auto" aria-live="polite">
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
+          {restored && (
+            <div className="flex items-center justify-between gap-3 self-center rounded-full border border-premium bg-white px-4 py-1.5 text-xs text-premium/70 shadow-premium">
+              <span>Retomamos tu conversación anterior</span>
+              <button type="button" onClick={reset} className="font-medium text-primary underline-offset-4 hover:underline">Empezar de nuevo</button>
+            </div>
+          )}
           {messages.map((m) =>
             m.card ? (
               <div key={m.id} className="w-full max-w-[34rem] self-start">
-                <Card card={m.card} send={(t) => void send(t)} onReceipt={(outcome) =>
+                <Card card={m.card} booking={m.card.type === "payment" ? bookingStates[m.card.bookingId] : undefined} send={(t) => void send(t)} onReceipt={(outcome) =>
                     pendingContext.current.push(
                       outcome === "confirmed"
                         ? "[sistema: el comprobante de transferencia coincidió y el turno quedó confirmado]"
