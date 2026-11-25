@@ -9,7 +9,10 @@ export type BookingSettings = { slotMinutes: number; minHoursAhead: number; hold
 
 export type TransferSettings = { alias: string; holder: string; bank: string; cbu: string }
 
-export type Settings = { ai: AiSettings; business: BusinessSettings; booking: BookingSettings; transfer: TransferSettings }
+export type PaymentSettings = { methods: string[]; depositPercent: number }
+export type TeamSettings = { professionals: string[] }
+
+export type Settings = { ai: AiSettings; business: BusinessSettings; booking: BookingSettings; transfer: TransferSettings; payments: PaymentSettings; team: TeamSettings }
 
 export const REASONING_EFFORTS: ReasoningEffort[] = ["none", "minimal", "low", "medium", "high"]
 
@@ -32,6 +35,8 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   booking: { slotMinutes: 30, minHoursAhead: 12, holdMinutes: 30, capacity: 1 },
   transfer: { alias: "", holder: "", bank: "", cbu: "" },
+  payments: { methods: ["Efectivo", "Transferencia", "Mercado Pago", "Tarjeta de débito", "Tarjeta de crédito"], depositPercent: 25 },
+  team: { professionals: [] },
 }
 
 export async function getSettings(): Promise<Settings> {
@@ -54,6 +59,10 @@ export function sanitizeSettings(input: Partial<Record<keyof Settings, Record<st
   const business = input.business ?? {}
   const booking = input.booking ?? {}
   const transfer = input.transfer ?? {}
+  const payments = input.payments ?? {}
+  const team = input.team ?? {}
+  const list = (v: unknown, fallback: string[], max: number) =>
+    Array.isArray(v) ? Array.from(new Set(v.filter((x): x is string => typeof x === "string").map((x) => x.trim().slice(0, 60)).filter(Boolean))).slice(0, max) : fallback
   const reasoning = REASONING_EFFORTS.includes(ai.reasoning as ReasoningEffort) ? (ai.reasoning as ReasoningEffort) : current.ai.reasoning
   const model = str(ai.model, 80, current.ai.model)
   return {
@@ -81,6 +90,11 @@ export function sanitizeSettings(input: Partial<Record<keyof Settings, Record<st
       bank: str(transfer.bank, 80, current.transfer.bank),
       cbu: str(transfer.cbu, 30, current.transfer.cbu).replace(/\D/g, ""),
     },
+    payments: {
+      methods: list(payments.methods, current.payments.methods, 20).length ? list(payments.methods, current.payments.methods, 20) : current.payments.methods,
+      depositPercent: clampInt(payments.depositPercent, 0, 100, current.payments.depositPercent),
+    },
+    team: { professionals: list(team.professionals, current.team.professionals, 50) },
   }
 }
 

@@ -17,6 +17,9 @@ const COPY = {
   expired: { title: "La reserva venció", text: "No recibimos la seña a tiempo y el horario se liberó. Podés buscar otro turno.", icon: TriangleAlert },
   cancelled: { title: "Reserva cancelada", text: "Este turno fue cancelado. Si es un error, escribinos.", icon: TriangleAlert },
   conflict: { title: "Recibimos tu pago", text: "El horario se ocupó mientras pagabas. Te vamos a contactar para reprogramar o devolverte la seña.", icon: TriangleAlert },
+  reserved: { title: "Tu turno está reservado", text: "Te esperamos. Si necesitás cambiarlo, escribinos.", icon: CalendarCheck },
+  done: { title: "Sesión realizada", text: "Gracias por venir. Cuando quieras, reservá tu próxima sesión.", icon: CalendarCheck },
+  no_show: { title: "No registramos tu asistencia", text: "Si querés reprogramar, escribinos.", icon: TriangleAlert },
 } as const
 
 export default async function ReservaPage({ params, searchParams }: { params: { id: string }; searchParams: Record<string, string | undefined> }) {

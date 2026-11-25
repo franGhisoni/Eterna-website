@@ -246,8 +246,7 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
     const promoId = Number(args.promo_id)
     const promo = promoId > 0 ? (await currentPromos()).find((p) => p.id === promoId && (!p.category || p.category === service.category)) : undefined
     if (promoId > 0 && !promo) return { output: { error: "promocion_no_aplica" } }
-    const notes = promo ? `Promo: ${promo.title}${promoSummary(promo) ? ` (${promoSummary(promo)})` : ""}` : ""
-    const r = await createBooking({ service, start, name: nombre, phone: telefono, email, notes }, settings.booking)
+    const r = await createBooking({ service, start, name: nombre, phone: telefono, email, promo, source: "chat" }, settings.booking)
     if (!r.ok) return { output: { error: "horario_no_disponible", detalle: "Ese horario ya no está libre. Ofrecé buscar otro." } }
     const bk = r.booking
     const rows: Array<[string, string]> = [
@@ -256,7 +255,7 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
       ["A nombre de", bk.name],
       ...(bk.price > 0 ? ([["Precio", formatARS(bk.price)]] as Array<[string, string]>) : []),
       ...(promo ? ([["Promoción", promo.title]] as Array<[string, string]>) : []),
-      ...(promo?.kind === "percent" && bk.price > 0 ? ([["Precio con promoción", formatARS(Math.round(bk.price * (1 - promo.percent / 100)))]] as Array<[string, string]>) : []),
+      ...(promo && bk.final_price != null && bk.final_price !== bk.price ? ([["Precio con promoción", formatARS(bk.final_price)]] as Array<[string, string]>) : []),
     ]
     if (bk.status === "confirmed") {
       return { output: { reservado: true, estado: "confirmado", sin_sena: true }, card: { type: "confirmed", bookingId: bk.id, rows } }

@@ -89,7 +89,144 @@ create table if not exists patients (
   notes text not null default '',
   created_at timestamptz not null default now()
 );
+
+-- ── Sistema integral: una sola fuente de verdad para pacientes, turnos y pagos ──
+alter table patients add column if not exists email text not null default '';
+alter table patients add column if not exists birth_date date;
+alter table patients add column if not exists source text not null default '';
+alter table patients add column if not exists phone_key text not null default '';
+create index if not exists patients_phone_key on patients(phone_key);
+
+alter table bookings add column if not exists patient_id int references patients(id) on delete set null;
+alter table bookings add column if not exists source text not null default 'web';
+alter table bookings add column if not exists zones text not null default '';
+alter table bookings add column if not exists professional text not null default '';
+alter table bookings add column if not exists promo_id int references promos(id) on delete set null;
+alter table bookings add column if not exists promo_title text not null default '';
+alter table bookings add column if not exists discount int not null default 0;
+alter table bookings add column if not exists final_price int;
+alter table bookings add column if not exists updated_at timestamptz not null default now();
+create index if not exists bookings_patient on bookings(patient_id);
+
+create table if not exists payments (
+  id serial primary key,
+  booking_id uuid references bookings(id) on delete set null,
+  patient_id int references patients(id) on delete set null,
+  amount int not null,
+  method text not null default 'Efectivo',
+  concept text not null default 'Pago',
+  origin text not null default 'manual',
+  external_ref text,
+  notes text not null default '',
+  paid_at timestamptz not null default now(),
+  created_by text not null default 'admin',
+  created_at timestamptz not null default now()
+);
+create index if not exists payments_booking on payments(booking_id);
+create index if not exists payments_patient on payments(patient_id);
+create unique index if not exists payments_external on payments(origin, external_ref) where external_ref is not null;
+
+create table if not exists booking_events (
+  id serial primary key,
+  booking_id uuid not null references bookings(id) on delete cascade,
+  kind text not null,
+  detail jsonb not null default '{}',
+  actor text not null default 'sistema',
+  created_at timestamptz not null default now()
+);
+create index if not exists booking_events_booking on booking_events(booking_id);
+
+create table if not exists audit_log (
+  id serial primary key,
+  entity text not null,
+  entity_id text not null,
+  action text not null,
+  before jsonb,
+  after jsonb,
+  actor text not null default 'admin',
+  created_at timestamptz not null default now()
+);
+create index if not exists audit_log_entity on audit_log(entity, entity_id);
+
+create table if not exists migrations (
+  name text primary key,
+  ran_at timestamptz not null default now()
+);
 `
+
+const PHONE_KEY = (col: string) => `right(regexp_replace(${col}, '\\D', '', 'g'), 8)`
+
+/** Data migrations: each runs once, in a transaction, and only adds or links data (never deletes or overwrites). */
+const DATA_MIGRATIONS: Array<[string, string]> = [
+  [
+    "2026-11-unificar-pacientes-turnos-pagos",
+    `
+-- clave de teléfono (últimos 8 dígitos) para reconocer a la misma persona aunque escriba el número distinto
+update patients set phone_key = ${PHONE_KEY("phone")} where phone_key = '' and phone <> '';
+
+-- el precio de cada turno existente queda congelado como precio final
+update bookings set final_price = price where final_price is null;
+
+-- turnos del chat que tenían la promo anotada en las notas
+update bookings set promo_title = trim(substring(notes from 'Promo: ([^(]+)')) where promo_title = '' and notes like 'Promo: %';
+
+-- vincular cada turno con su paciente por teléfono, creando la ficha si la persona no existía
+insert into patients (name, phone, email, phone_key, source, status, created_at)
+select distinct on (${PHONE_KEY("b.phone")}) b.name, b.phone, b.email, ${PHONE_KEY("b.phone")}, 'Web / chat', 'Activa', b.created_at
+from bookings b
+where length(regexp_replace(b.phone, '\\D', '', 'g')) >= 6
+  and b.status in ('confirmed', 'pending_review', 'conflict')
+  and not exists (select 1 from patients p where p.phone_key <> '' and p.phone_key = ${PHONE_KEY("b.phone")})
+order by ${PHONE_KEY("b.phone")}, b.created_at;
+
+update bookings b set patient_id = p.id
+from patients p
+where b.patient_id is null and p.phone_key <> '' and p.phone_key = ${PHONE_KEY("b.phone")};
+
+-- señas ya cobradas por Mercado Pago o por transferencia pasan a ser pagos registrados
+insert into payments (booking_id, patient_id, amount, method, concept, origin, external_ref, paid_at, created_by)
+select b.id, b.patient_id, b.deposit, 'Mercado Pago', 'Seña', 'mercadopago', b.mp_payment_id, b.created_at, 'sistema'
+from bookings b where b.mp_payment_id is not null and b.deposit > 0
+on conflict do nothing;
+
+insert into payments (booking_id, patient_id, amount, method, concept, origin, external_ref, paid_at, created_by)
+select b.id, b.patient_id, b.deposit, 'Transferencia', 'Seña', 'comprobante', b.id::text, coalesce(r.verified_at, r.created_at), 'sistema'
+from bookings b join booking_receipts r on r.booking_id = b.id
+where b.deposit > 0 and b.status = 'confirmed' and b.mp_payment_id is null
+on conflict do nothing;
+
+-- el "próximo turno" escrito a mano en la ficha del paciente pasa a ser un turno real de la agenda
+insert into bookings (service_name, starts_at, ends_at, name, phone, email, notes, status, price, deposit, final_price, patient_id, source, created_at)
+select coalesce(nullif(p.treatments, ''), 'Sesión'), p.next_appointment, p.next_appointment + interval '30 minutes', p.name, p.phone, '',
+       'Turno migrado desde la ficha del paciente', 'reserved', 0, 0, 0, p.id, 'admin', now()
+from patients p
+where p.next_appointment is not null and p.next_appointment > now()
+  and not exists (select 1 from bookings b where b.patient_id = p.id and b.starts_at = p.next_appointment);
+`,
+  ],
+]
+
+async function runDataMigrations(pool: Pool) {
+  for (const [name, sql] of DATA_MIGRATIONS) {
+    const client = await pool.connect()
+    try {
+      await client.query("begin")
+      await client.query("select pg_advisory_xact_lock(515151)")
+      const { rows } = await client.query("select 1 from migrations where name = $1", [name])
+      if (!rows.length) {
+        await client.query(sql)
+        await client.query("insert into migrations (name) values ($1)", [name])
+        console.log(`db: migración aplicada · ${name}`)
+      }
+      await client.query("commit")
+    } catch (e) {
+      await client.query("rollback")
+      throw e
+    } finally {
+      client.release()
+    }
+  }
+}
 
 const SEED_SERVICES: Array<[string, string, number]> = [
   ["Depilación láser", "Láser diodo de alta potencia, con un plan adaptado a tu tipo de piel, zona y objetivos. Rostro y cuerpo completo.", 30],
@@ -108,6 +245,7 @@ function createPool(): Pool {
 
 async function init(pool: Pool) {
   await pool.query(SCHEMA)
+  await runDataMigrations(pool)
   const { rows } = await pool.query("select count(*)::int as n from services")
   if (rows[0].n === 0) {
     for (const [i, [name, description, duration]] of SEED_SERVICES.entries()) {

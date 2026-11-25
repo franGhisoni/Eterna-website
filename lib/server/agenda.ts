@@ -2,6 +2,8 @@ import type { PoolClient } from "pg"
 import { db, transaction } from "./db"
 import type { Verdict } from "./receipts"
 import type { BookingSettings } from "./settings"
+import { findPatientByPhone, linkBookingPatient, priceWithPromo, recordAutomaticPayment } from "./ledger"
+import type { Promo } from "./promos"
 import { addDays, DAY_RE, minutesOf, TIME_RE, toInstant, todayAR } from "../time"
 
 type Queryable = Pick<PoolClient, "query">
@@ -23,7 +25,7 @@ export type Service = {
 
 export type Range = { day: string; start_time: string; end_time: string }
 
-export type BookingStatus = "pending_payment" | "pending_review" | "confirmed" | "cancelled" | "conflict"
+export type BookingStatus = "pending_payment" | "pending_review" | "confirmed" | "cancelled" | "conflict" | "reserved" | "done" | "no_show"
 
 export type Booking = {
   id: string
@@ -41,10 +43,12 @@ export type Booking = {
   mp_payment_id: string | null
   expires_at: Date | null
   created_at: Date
+  patient_id?: number | null
+  final_price?: number | null
 }
 
-// a booking blocks its slot while confirmed, while its payment hold is alive, or when it was paid late into a taken slot
-const BLOCKING = `(status in ('confirmed', 'conflict', 'pending_review') or (status = 'pending_payment' and expires_at > now()))`
+// a booking blocks its slot while reserved/confirmed/done, while its payment hold is alive, or when it was paid late into a taken slot
+export const BLOCKING = `(status in ('confirmed', 'conflict', 'pending_review', 'reserved', 'done') or (status = 'pending_payment' and expires_at > now()))`
 
 export async function listServices(activeOnly = true): Promise<Service[]> {
   const { rows } = await (await db()).query<Service>(
@@ -152,6 +156,8 @@ export type CreateBookingInput = {
   phone: string
   email: string
   notes?: string
+  promo?: Promo
+  source?: "web" | "chat"
 }
 
 export async function createBooking(input: CreateBookingInput, booking: BookingSettings): Promise<{ ok: true; booking: Booking } | { ok: false; error: "slot_unavailable" }> {
@@ -162,9 +168,12 @@ export async function createBooking(input: CreateBookingInput, booking: BookingS
     if (!slots.some((s) => s.start.getTime() === input.start.getTime())) return { ok: false, error: "slot_unavailable" } as const
     const end = new Date(input.start.getTime() + input.service.duration_min * 60_000)
     const needsPayment = input.service.deposit > 0
+    const known = await findPatientByPhone(input.phone, c)
+    const { discount, final } = priceWithPromo(input.service.price, input.promo)
     const { rows } = await c.query<Booking>(
-      `insert into bookings (service_id, service_name, starts_at, ends_at, name, phone, email, notes, status, price, deposit, expires_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) returning *`,
+      `insert into bookings (service_id, service_name, starts_at, ends_at, name, phone, email, notes, status, price, deposit, expires_at,
+         patient_id, source, zones, promo_id, promo_title, discount, final_price)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) returning *`,
       [
         input.service.id,
         input.service.gender && input.service.gender !== "Unisex" ? `${input.service.name} (${input.service.gender})` : input.service.name,
@@ -178,8 +187,17 @@ export async function createBooking(input: CreateBookingInput, booking: BookingS
         input.service.price,
         input.service.deposit,
         needsPayment ? new Date(Date.now() + booking.holdMinutes * 60_000) : null,
+        known?.id ?? null,
+        input.source ?? "web",
+        input.service.detail || "",
+        input.promo?.id ?? null,
+        input.promo?.title ?? "",
+        discount,
+        final,
       ],
     )
+    await c.query("insert into booking_events (booking_id, kind, detail) values ($1, 'creado', $2)", [rows[0].id, JSON.stringify({ origen: input.source ?? "web" })])
+    if (!needsPayment) await linkBookingPatient(c, rows[0].id)
     return { ok: true, booking: rows[0] } as const
   })
 }
@@ -216,6 +234,7 @@ export async function markBookingPaid(id: string, paymentId: string, amount: num
       "update bookings set status = $2, mp_payment_id = $3, expires_at = null where id = $1 returning *",
       [id, status, paymentId],
     )
+    await recordAutomaticPayment(c, id, amount, "Mercado Pago", "mercadopago", paymentId)
     return updated[0]
   })
 }
@@ -242,6 +261,8 @@ export async function saveReceipt(
       [id, receipt.name, receipt.mime, receipt.data, receipt.sha256, receipt.verdict?.result ?? "sin_lectura", receipt.verdict?.reason ?? "", receipt.verdict?.reading ? JSON.stringify(receipt.verdict.reading) : null],
     )
     if (status !== "pending_payment") await c.query("update bookings set status = $2, expires_at = null where id = $1", [id, status])
+    if (status === "confirmed") await recordAutomaticPayment(c, id, b.deposit, "Transferencia", "comprobante", id)
+    if (status === "pending_review") await linkBookingPatient(c, id)
     return "ok"
   })
 }
@@ -270,9 +291,13 @@ export async function reviewTransfer(id: string, action: "verify" | "reject"): P
     if (action === "verify") {
       await c.query("update booking_receipts set verified_at = now() where booking_id = $1", [id])
       await c.query("update bookings set status = 'confirmed', expires_at = null where id = $1", [id])
+      const { rows: b } = await c.query<{ deposit: number }>("select deposit from bookings where id = $1", [id])
+      await recordAutomaticPayment(c, id, b[0]?.deposit ?? 0, "Transferencia", "comprobante", id)
     } else {
       await c.query("update booking_receipts set verified_at = null where booking_id = $1", [id])
       await c.query("update bookings set status = 'cancelled' where id = $1", [id])
+      // la IA había dado el comprobante por bueno y el equipo lo rechazó: ese cobro no existió
+      await c.query("delete from payments where booking_id = $1 and origin = 'comprobante'", [id])
     }
     return true
   })

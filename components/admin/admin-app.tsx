@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { BadgePercent, Bot, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, ExternalLink, Landmark, LogOut, Plus, Save, Settings2, Sparkles, Trash2, Users } from "lucide-react"
+import { BadgePercent, Bot, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, ExternalLink, Landmark, LayoutDashboard, LogOut, Plus, Save, Settings2, Sparkles, Trash2, Users, Wallet } from "lucide-react"
+import { AgendaView, CashView, DashboardView, PatientsView } from "./operations"
 import type { Settings, ReasoningEffort } from "@/lib/server/settings"
 import { DEFAULT_DIALOGUE } from "@/lib/chat-defaults"
 import { addDays, formatARS, formatDay, TIME_ZONE, todayAR, weekdayOf } from "@/lib/time"
@@ -34,9 +35,10 @@ type Booking = {
   mp_payment_id: string | null
   notes: string
   has_receipt: boolean
-  state: "pending_payment" | "pending_review" | "confirmed" | "cancelled" | "conflict" | "expired"
+  state: "pending_payment" | "pending_review" | "confirmed" | "cancelled" | "conflict" | "expired" | "reserved" | "done" | "no_show"
 }
 type RangeRow = { start: string; end: string }
+const NL = String.fromCharCode(10)
 
 const field = "h-10 w-full rounded-lg border border-premium bg-white px-3 text-sm text-premium outline-none focus:border-primary/40 focus:ring-[3px] focus:ring-primary/10"
 const fieldInline = "h-10 rounded-lg border border-premium bg-white px-3 text-sm text-premium outline-none focus:border-primary/40 focus:ring-[3px] focus:ring-primary/10"
@@ -69,9 +71,11 @@ function useFlash() {
 }
 
 const TABS = [
-  { id: "turnos", label: "Turnos", icon: ClipboardList },
-  { id: "agenda", label: "Agenda", icon: CalendarDays },
+  { id: "inicio", label: "Inicio", icon: LayoutDashboard },
+  { id: "turnos", label: "Agenda", icon: ClipboardList },
   { id: "pacientes", label: "Pacientes", icon: Users },
+  { id: "caja", label: "Caja", icon: Wallet },
+  { id: "agenda", label: "Jornadas", icon: CalendarDays },
   { id: "transferencias", label: "Transferencias", icon: Landmark },
   { id: "servicios", label: "Servicios", icon: Sparkles },
   { id: "promos", label: "Promociones", icon: BadgePercent },
@@ -82,7 +86,13 @@ type TabId = (typeof TABS)[number]["id"]
 
 export function AdminApp() {
   const router = useRouter()
-  const [tab, setTab] = useState<TabId>("turnos")
+  const [tab, setTab] = useState<TabId>("inicio")
+  const [openPatient, setOpenPatient] = useState<number | null>(null)
+  const showPatient = useCallback((id: number) => {
+    setOpenPatient(id)
+    setTab("pacientes")
+  }, [])
+  const patientOpened = useCallback(() => setOpenPatient(null), [])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
   const [flash, setFlash] = useFlash()
@@ -144,10 +154,12 @@ export function AdminApp() {
         </nav>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        {tab === "turnos" && <BookingsTab flash={setFlash} />}
+      <main className="mx-auto max-w-6xl px-4 py-6 pb-24">
+        {tab === "inicio" && <DashboardView flash={setFlash} onPatient={showPatient} go={(t) => setTab(t as TabId)} />}
+        {tab === "turnos" && <AgendaView flash={setFlash} onPatient={showPatient} />}
+        {tab === "pacientes" && <PatientsView flash={setFlash} openId={openPatient} onOpened={patientOpened} />}
+        {tab === "caja" && <CashView flash={setFlash} />}
         {tab === "agenda" && <AgendaTab flash={setFlash} />}
-        {tab === "pacientes" && <PatientsTab flash={setFlash} />}
         {tab === "transferencias" && <TransfersTab flash={setFlash} />}
         {tab === "servicios" && <ServicesTab flash={setFlash} />}
         {tab === "promos" && <PromosTab flash={setFlash} />}
@@ -164,7 +176,7 @@ export function AdminApp() {
   )
 }
 
-/* ───────────── Turnos ───────────── */
+/* ───────────── Estados (para Transferencias) ───────────── */
 
 const STATE_LABEL: Record<Booking["state"], { label: string; cls: string }> = {
   confirmed: { label: "Confirmado", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -173,95 +185,9 @@ const STATE_LABEL: Record<Booking["state"], { label: string; cls: string }> = {
   expired: { label: "Seña vencida", cls: "bg-stone-100 text-stone-500 border-stone-200" },
   cancelled: { label: "Cancelado", cls: "bg-stone-100 text-stone-500 border-stone-200" },
   conflict: { label: "Pagado · revisar", cls: "bg-red-50 text-red-700 border-red-200" },
-}
-
-function BookingsTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
-  const [bookings, setBookings] = useState<Booking[] | null>(null)
-  const [showInactive, setShowInactive] = useState(false)
-
-  const load = useCallback(() => {
-    api<{ bookings: Booking[] }>(`/api/admin/bookings?desde=${addDays(todayAR(), -7)}`)
-      .then((d) => setBookings(d.bookings))
-      .catch(() => flash("No se pudieron cargar los turnos", true))
-  }, [flash])
-  useEffect(load, [load])
-
-  const change = async (b: Booking, status: "confirmed" | "cancelled") => {
-    if (status === "cancelled" && !confirm(`¿Cancelar el turno de ${b.name}? El horario queda libre.`)) return
-    try {
-      await api("/api/admin/bookings", { method: "PATCH", body: JSON.stringify({ id: b.id, status }) })
-      flash(status === "confirmed" ? "Turno confirmado" : "Turno cancelado")
-      load()
-    } catch {
-      flash("No se pudo actualizar", true)
-    }
-  }
-
-  const visible = (bookings ?? []).filter((b) => showInactive || (b.state !== "cancelled" && b.state !== "expired"))
-  const byDay = useMemo(() => {
-    const map = new Map<string, Booking[]>()
-    for (const b of visible) {
-      const d = todayAR(new Date(b.starts_at))
-      map.set(d, [...(map.get(d) ?? []), b])
-    }
-    return Array.from(map)
-  }, [visible])
-
-  const time = (iso: string) => new Intl.DateTimeFormat("es-AR", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso))
-
-  return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-serif text-2xl font-bold text-premium">Turnos</h1>
-          <p className="text-sm text-premium/60">Desde hace 7 días en adelante.</p>
-        </div>
-        <label className="flex items-center gap-2 text-sm text-premium/70">
-          <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} className="accent-[#882626]" />
-          Mostrar cancelados y vencidos
-        </label>
-      </div>
-      {bookings === null ? (
-        <p className="text-sm text-premium/60">Cargando…</p>
-      ) : byDay.length === 0 ? (
-        <div className={panel}><p className="text-sm text-premium/60">No hay turnos todavía.</p></div>
-      ) : (
-        byDay.map(([day, list]) => (
-          <div key={day} className={panel}>
-            <p className="font-medium text-premium">{formatDay(day)}</p>
-            <ul className="mt-3 divide-y divide-border">
-              {list.map((b) => (
-                <li key={b.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center">
-                  <p className="w-14 shrink-0 font-serif text-lg font-semibold text-premium">{time(b.starts_at)}</p>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-premium">{b.name} <span className="font-normal text-premium/55">· {b.service_name}</span></p>
-                    <p className="text-sm text-premium/60">
-                      <a className="hover:text-primary" href={`https://wa.me/${b.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">{b.phone}</a>
-                      {b.email && <> · {b.email}</>}
-                      {b.notes && <> · {b.notes}</>}
-                      {b.deposit > 0 && <> · Seña {formatARS(b.deposit)}{b.mp_payment_id ? ` (MP ${b.mp_payment_id})` : ""}</>}
-                    </p>
-                  </div>
-                  <span className={`w-fit shrink-0 rounded-full border px-2.5 py-0.5 text-xs ${STATE_LABEL[b.state].cls}`}>{STATE_LABEL[b.state].label}</span>
-                  <div className="flex shrink-0 gap-2">
-                    {b.has_receipt && (
-                      <a href={`/api/admin/bookings/${b.id}/comprobante`} target="_blank" rel="noreferrer" className={`${btnGhost} h-8 px-3 text-xs`}>Ver comprobante</a>
-                    )}
-                    {b.state !== "confirmed" && b.state !== "cancelled" && (
-                      <button onClick={() => change(b, "confirmed")} className={`${btnGhost} h-8 px-3 text-xs`}>Confirmar</button>
-                    )}
-                    {b.state !== "cancelled" && (
-                      <button onClick={() => change(b, "cancelled")} className={`${btnGhost} h-8 px-3 text-xs text-destructive`}>Cancelar</button>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))
-      )}
-    </section>
-  )
+  reserved: { label: "Reservado", cls: "bg-violet-50 text-violet-700 border-violet-200" },
+  done: { label: "Realizado", cls: "bg-teal-50 text-teal-700 border-teal-200" },
+  no_show: { label: "Ausente", cls: "bg-orange-50 text-orange-700 border-orange-200" },
 }
 
 /* ───────────── Agenda ───────────── */
@@ -553,159 +479,8 @@ function ServicesTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
   )
 }
 
-/* ───────────── Pacientes ───────────── */
-
-type Patient = {
-  id: number
-  name: string
-  phone: string
-  gender: string
-  treatments: string
-  sessions_done: number
-  deposit: number
-  balance: number
-  status: string
-  first_session: string | null
-  last_session: string | null
-  next_appointment: string | null
-  notes: string
-}
-
-const PATIENT_STATUSES = ["Activa", "Pausada", "Dejó", "Finalizó"]
-const STATUS_CLS: Record<string, string> = {
-  Activa: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  Pausada: "bg-amber-50 text-amber-700 border-amber-200",
-  Dejó: "bg-stone-100 text-stone-500 border-stone-200",
-  Finalizó: "bg-sky-50 text-sky-700 border-sky-200",
-}
-
-const toLocalInput = (iso: string | null) => {
-  if (!iso) return ""
-  const d = new Date(new Date(iso).getTime() - 3 * 3600_000)
-  return d.toISOString().slice(0, 16)
-}
-const fromLocalInput = (v: string) => (v ? `${v}:00-03:00` : null)
 const shortDate = (iso: string | null) =>
   iso ? new Intl.DateTimeFormat("es-AR", { timeZone: TIME_ZONE, day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso)) : "—"
-
-function PatientForm({ p, onClose, onSaved, flash }: { p: Patient; onClose: () => void; onSaved: () => void; flash: (t: string, e?: boolean) => void }) {
-  const [f, setF] = useState(p)
-  const set = (patch: Partial<Patient>) => setF((v) => ({ ...v, ...patch }))
-  const save = async () => {
-    try {
-      await api("/api/admin/patients", { method: f.id > 0 ? "PUT" : "POST", body: JSON.stringify(f) })
-      flash("Paciente guardado")
-      onSaved()
-    } catch {
-      flash("Revisá los datos (el nombre es obligatorio)", true)
-    }
-  }
-  const remove = async () => {
-    if (!confirm(`¿Eliminar a ${f.name}?`)) return
-    await api(`/api/admin/patients?id=${f.id}`, { method: "DELETE" }).catch(() => flash("No se pudo eliminar", true))
-    onSaved()
-  }
-  const lbl = "text-xs text-premium/60"
-  return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onClick={onClose}>
-      <div className="h-full w-full max-w-md overflow-y-auto bg-white p-6 shadow-premium-lg" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Paciente">
-        <div className="flex items-center justify-between">
-          <p className="font-serif text-xl font-bold text-premium">{f.id > 0 ? "Editar paciente" : "Nuevo paciente"}</p>
-          <button onClick={onClose} className={`${btnGhost} h-9`}>Cerrar</button>
-        </div>
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <label className={`${lbl} col-span-2`}>Nombre<input value={f.name} onChange={(e) => set({ name: e.target.value })} className={`${field} mt-1`} /></label>
-          <label className={lbl}>Teléfono<input value={f.phone} onChange={(e) => set({ phone: e.target.value })} className={`${field} mt-1`} /></label>
-          <label className={lbl}>Género<select value={f.gender} onChange={(e) => set({ gender: e.target.value })} className={`${field} mt-1`}>{["", "Mujer", "Hombre", "Otro"].map((g) => <option key={g} value={g}>{g || "—"}</option>)}</select></label>
-          <label className={`${lbl} col-span-2`}>Tratamiento / zonas<input value={f.treatments} onChange={(e) => set({ treatments: e.target.value })} className={`${field} mt-1`} /></label>
-          <label className={lbl}>Estado<select value={f.status} onChange={(e) => set({ status: e.target.value })} className={`${field} mt-1`}>{PATIENT_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
-          <label className={lbl}>Sesiones realizadas<input type="number" min={0} value={f.sessions_done} onChange={(e) => set({ sessions_done: Number(e.target.value) })} className={`${field} mt-1`} /></label>
-          <label className={lbl}>Seña (ARS)<input type="number" min={0} value={f.deposit} onChange={(e) => set({ deposit: Number(e.target.value) })} className={`${field} mt-1`} /></label>
-          <label className={lbl}>Resta abonar (ARS)<input type="number" min={0} value={f.balance} onChange={(e) => set({ balance: Number(e.target.value) })} className={`${field} mt-1`} /></label>
-          <label className={lbl}>Primera sesión<input type="date" value={f.first_session ?? ""} onChange={(e) => set({ first_session: e.target.value || null })} className={`${field} mt-1`} /></label>
-          <label className={lbl}>Última sesión<input type="date" value={f.last_session ?? ""} onChange={(e) => set({ last_session: e.target.value || null })} className={`${field} mt-1`} /></label>
-          <label className={`${lbl} col-span-2`}>Próximo turno<input type="datetime-local" value={toLocalInput(f.next_appointment)} onChange={(e) => set({ next_appointment: fromLocalInput(e.target.value) })} className={`${field} mt-1`} /></label>
-          <label className={`${lbl} col-span-2`}>Notas<textarea rows={4} value={f.notes} onChange={(e) => set({ notes: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
-        </div>
-        <div className="mt-5 flex gap-2">
-          <button onClick={save} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
-          {f.phone && <a href={`https://wa.me/${f.phone.replace(/\D/g, "").replace(/^(?!54)/, "549")}`} target="_blank" rel="noreferrer" className={btnGhost}>WhatsApp</a>}
-          {f.id > 0 && <button onClick={remove} className={`${btnIcon} ml-auto text-destructive`} aria-label="Eliminar paciente"><Trash2 className="h-4 w-4" /></button>}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function PatientsTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
-  const [patients, setPatients] = useState<Patient[] | null>(null)
-  const [query, setQuery] = useState("")
-  const [status, setStatus] = useState("Activa")
-  const [editing, setEditing] = useState<Patient | null>(null)
-
-  const load = useCallback(() => {
-    api<{ patients: Patient[] }>("/api/admin/patients").then((d) => setPatients(d.patients)).catch(() => flash("No se pudieron cargar los pacientes", true))
-  }, [flash])
-  useEffect(load, [load])
-
-  const q = query.trim().toLowerCase()
-  const visible = (patients ?? []).filter((p) => (!status || p.status === status) && (!q || `${p.name} ${p.phone} ${p.treatments}`.toLowerCase().includes(q)))
-  const totals = visible.reduce((a, p) => ({ balance: a.balance + p.balance, sessions: a.sessions + p.sessions_done }), { balance: 0, sessions: 0 })
-  const blank: Patient = { id: -1, name: "", phone: "", gender: "", treatments: "", sessions_done: 0, deposit: 0, balance: 0, status: "Activa", first_session: null, last_session: null, next_appointment: null, notes: "" }
-
-  return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-serif text-2xl font-bold text-premium">Pacientes</h1>
-          <p className="text-sm text-premium/60">{visible.length} pacientes · {totals.sessions} sesiones realizadas · {formatARS(totals.balance)} por cobrar</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar nombre, teléfono, zona…" className={`${fieldInline} w-56`} aria-label="Buscar paciente" />
-          <select value={status} onChange={(e) => setStatus(e.target.value)} className={`${fieldInline} w-32`} aria-label="Estado">
-            <option value="">Todos</option>
-            {PATIENT_STATUSES.map((s) => <option key={s}>{s}</option>)}
-          </select>
-          <button onClick={() => setEditing(blank)} className={btnPrimary}><Plus className="h-4 w-4" /> Nuevo</button>
-        </div>
-      </div>
-      <div className={`${panel} overflow-x-auto p-0 sm:p-0`}>
-        {patients === null ? (
-          <p className="p-5 text-sm text-premium/60">Cargando…</p>
-        ) : (
-          <table className="w-full min-w-[760px] text-sm">
-            <thead className="border-b border-premium text-left text-xs text-premium/55">
-              <tr>
-                <th className="px-4 py-3 font-medium">Nombre</th>
-                <th className="px-3 py-3 font-medium">Tratamiento</th>
-                <th className="px-3 py-3 text-right font-medium">Sesiones</th>
-                <th className="px-3 py-3 text-right font-medium">Resta</th>
-                <th className="px-3 py-3 font-medium">Próximo turno</th>
-                <th className="px-3 py-3 font-medium">Estado</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {visible.map((p) => (
-                <tr key={p.id} onClick={() => setEditing(p)} className="cursor-pointer transition-premium hover:bg-secondary/40">
-                  <td className="px-4 py-2.5">
-                    <p className="font-medium text-premium">{p.name}</p>
-                    <p className="text-xs text-premium/50">{p.phone || "sin teléfono"}</p>
-                  </td>
-                  <td className="max-w-[240px] px-3 py-2.5 text-premium/75">{p.treatments || "—"}</td>
-                  <td className="px-3 py-2.5 text-right text-premium">{p.sessions_done}</td>
-                  <td className={`px-3 py-2.5 text-right ${p.balance > 0 ? "font-medium text-primary" : "text-premium/50"}`}>{p.balance > 0 ? formatARS(p.balance) : "—"}</td>
-                  <td className="px-3 py-2.5 text-premium/75">{shortDate(p.next_appointment)}</td>
-                  <td className="px-3 py-2.5"><span className={`rounded-full border px-2.5 py-0.5 text-xs ${STATUS_CLS[p.status] ?? STATUS_CLS.Dejó}`}>{p.status}</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-      {editing && <PatientForm p={editing} flash={flash} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load() }} />}
-    </section>
-  )
-}
 
 /* ───────────── Transferencias ───────────── */
 
@@ -876,22 +651,38 @@ function PromosTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
   const update = (id: number, patch: Partial<Promo>) => setPromos((v) => v?.map((p) => (p.id === id ? { ...p, ...patch } : p)) ?? v)
   const add = () => setPromos((v) => [{ id: -Date.now(), title: "", description: "", kind: "percent", percent: 20, sessions: 0, category: "", starts_on: null, ends_on: null, active: true }, ...(v ?? [])])
 
+  // guardar una promo actualiza solo esa tarjeta: las demás (incluidas las que todavía no se guardaron) quedan intactas
   const save = async (p: Promo) => {
     try {
-      await api("/api/admin/promos", { method: p.id > 0 ? "PUT" : "POST", body: JSON.stringify(p) })
+      const r = await api<{ promo: Promo }>("/api/admin/promos", { method: p.id > 0 ? "PUT" : "POST", body: JSON.stringify(p) })
+      setPromos((v) => v?.map((x) => (x.id === p.id ? r.promo : x)) ?? v)
       flash("Promoción guardada")
-      load()
     } catch {
       flash("Revisá el título, el porcentaje y las fechas", true)
     }
   }
 
+  const duplicate = (p: Promo) => setPromos((v) => [{ ...p, id: -Date.now(), title: `${p.title} (copia)`, active: false }, ...(v ?? [])])
+
   const remove = async (p: Promo) => {
     if (p.id < 0) return setPromos((v) => v?.filter((x) => x.id !== p.id) ?? v)
-    if (!confirm(`¿Eliminar "${p.title}"?`)) return
-    await api(`/api/admin/promos?id=${p.id}`, { method: "DELETE" }).catch(() => flash("No se pudo eliminar", true))
-    load()
+    if (!confirm(`¿Eliminar "${p.title}"? Los turnos que ya la usaron conservan su precio. Si solo querés dejar de ofrecerla, desmarcá «Activa».`)) return
+    try {
+      await api(`/api/admin/promos?id=${p.id}`, { method: "DELETE" })
+      setPromos((v) => v?.filter((x) => x.id !== p.id) ?? v)
+    } catch {
+      flash("No se pudo eliminar", true)
+    }
   }
+
+  const today = todayAR()
+  const promoState = (p: Promo) =>
+    p.id < 0 ? { label: "Sin guardar", cls: "bg-amber-50 text-amber-700 border-amber-200" }
+    : !p.active ? { label: "Pausada", cls: "bg-stone-100 text-stone-500 border-stone-200" }
+    : p.ends_on && p.ends_on < today ? { label: "Vencida", cls: "bg-stone-100 text-stone-500 border-stone-200" }
+    : p.starts_on && p.starts_on > today ? { label: "Programada", cls: "bg-sky-50 text-sky-700 border-sky-200" }
+    : { label: "Activa · la ofrece el chat", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" }
+  const live = (promos ?? []).filter((p) => promoState(p).label.startsWith("Activa")).length
 
   const lbl = "text-xs text-premium/60"
   return (
@@ -899,7 +690,8 @@ function PromosTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-serif text-2xl font-bold text-premium">Promociones</h1>
-          <p className="max-w-3xl text-sm text-premium/60">El chat ofrece las activas y vigentes, y deja la promo anotada en el turno. La seña no cambia: el descuento se aplica sobre lo que resta abonar, y las condiciones las verifica el equipo en el centro.</p>
+          <p className="max-w-3xl text-sm text-premium/60">Podés tener todas las promociones que quieras al mismo tiempo. El chat ofrece las activas y vigentes, y el precio con descuento queda congelado en cada turno: si después cambiás una promo, los turnos ya tomados no se modifican.</p>
+          <p className="mt-1 text-sm font-medium text-premium">{live} activas ahora</p>
         </div>
         <button onClick={add} className={btnPrimary}><Plus className="h-4 w-4" /> Nueva promoción</button>
       </div>
@@ -928,11 +720,13 @@ function PromosTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
               <textarea rows={2} value={p.description} onChange={(e) => update(p.id, { description: e.target.value })} placeholder="Ej.: válida si venís con otra persona que también se atiende el mismo día." className={`${field} mt-1 h-auto py-2`} />
             </label>
           </div>
-          <div className="mt-3 flex items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <label className="flex items-center gap-2 text-sm text-premium/70">
               <input type="checkbox" checked={p.active} onChange={(e) => update(p.id, { active: e.target.checked })} className="accent-[#882626]" /> Activa
             </label>
-            <button onClick={() => remove(p)} className={`${btnIcon} ml-auto text-destructive`} aria-label="Eliminar promoción"><Trash2 className="h-4 w-4" /></button>
+            <span className={`rounded-full border px-2.5 py-0.5 text-xs ${promoState(p).cls}`}>{promoState(p).label}</span>
+            <button onClick={() => duplicate(p)} className={`${btnIcon} ml-auto`} aria-label="Duplicar promoción" title="Duplicar"><Copy className="h-4 w-4" /></button>
+            <button onClick={() => remove(p)} className={`${btnIcon} text-destructive`} aria-label="Eliminar promoción"><Trash2 className="h-4 w-4" /></button>
             <button onClick={() => save(p)} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
           </div>
         </div>
@@ -1014,7 +808,11 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
   const [business, setBusiness] = useState(settings.business)
   const [booking, setBooking] = useState(settings.booking)
   const [transfer, setTransfer] = useState(settings.transfer)
-  const dirty = JSON.stringify({ business, booking, transfer }) !== JSON.stringify({ business: settings.business, booking: settings.booking, transfer: settings.transfer })
+  const [payments, setPayments] = useState(settings.payments)
+  const [team, setTeam] = useState(settings.team)
+  const dirty =
+    JSON.stringify({ business, booking, transfer, payments, team }) !==
+    JSON.stringify({ business: settings.business, booking: settings.booking, transfer: settings.transfer, payments: settings.payments, team: settings.team })
   const webhookUrl = typeof window !== "undefined" ? `${window.location.origin}/api/mp/webhook` : ""
   const num = (v: string) => Number(v)
 
@@ -1025,7 +823,7 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
           <h1 className="font-serif text-2xl font-bold text-premium">Configuración</h1>
           <p className="text-sm text-premium/60">Datos del centro, reglas de reserva e integraciones.</p>
         </div>
-        <button onClick={() => save({ ...settings, business, booking, transfer })} disabled={!dirty} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
+        <button onClick={() => save({ ...settings, business, booking, transfer, payments, team })} disabled={!dirty} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
       </div>
 
       <div className={`${panel} grid gap-4 sm:grid-cols-2`}>
@@ -1042,6 +840,18 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
         <label className="text-xs text-premium/60">Anticipación mínima (horas)<input type="number" min={0} value={booking.minHoursAhead} onChange={(e) => setBooking({ ...booking, minHoursAhead: num(e.target.value) })} className={`${field} mt-1`} /></label>
         <label className="text-xs text-premium/60">Tiempo para pagar la seña (min)<input type="number" min={10} value={booking.holdMinutes} onChange={(e) => setBooking({ ...booking, holdMinutes: num(e.target.value) })} className={`${field} mt-1`} /></label>
         <label className="text-xs text-premium/60">Turnos simultáneos<input type="number" min={1} value={booking.capacity} onChange={(e) => setBooking({ ...booking, capacity: num(e.target.value) })} className={`${field} mt-1`} /></label>
+      </div>
+
+      <div className={`${panel} grid gap-4 sm:grid-cols-2`}>
+        <p className="font-medium text-premium sm:col-span-2">Pagos y equipo</p>
+        <label className="text-xs text-premium/60">Seña sugerida (% del precio, para servicios sin seña fija)<input type="number" min={0} max={100} value={payments.depositPercent} onChange={(e) => setPayments({ ...payments, depositPercent: num(e.target.value) })} className={`${field} mt-1`} /></label>
+        <div />
+        <label className="text-xs text-premium/60">Medios de pago (uno por línea)
+          <textarea rows={5} value={payments.methods.join(NL)} onChange={(e) => setPayments({ ...payments, methods: e.target.value.split(NL) })} className={`${field} mt-1 h-auto py-2`} />
+        </label>
+        <label className="text-xs text-premium/60">Profesionales (uno por línea)
+          <textarea rows={5} value={team.professionals.join(NL)} onChange={(e) => setTeam({ professionals: e.target.value.split(NL) })} className={`${field} mt-1 h-auto py-2`} />
+        </label>
       </div>
 
       <div className={`${panel} grid gap-4 sm:grid-cols-2`}>

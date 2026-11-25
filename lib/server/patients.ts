@@ -1,75 +1,94 @@
-import { db } from "./db"
+import { db, transaction } from "./db"
+import { audit, phoneKey } from "./ledger"
 import { DAY_RE } from "../time"
 
-export type Patient = {
-  id: number
+export const PATIENT_STATUSES = ["Nueva", "Activa", "Pausada", "Inactiva", "Finalizó", "Dejó", "Archivada"]
+
+/** Solo los datos personales se editan a mano: sesiones, saldo y próximo turno salen de la agenda y los pagos. */
+export type PatientInput = {
   name: string
   phone: string
+  email: string
   gender: string
   treatments: string
-  sessions_done: number
-  deposit: number
-  balance: number
   status: string
-  first_session: string | null
-  last_session: string | null
-  next_appointment: Date | null
+  source: string
+  birth_date: string | null
   notes: string
-  created_at: Date
 }
-
-export type PatientInput = Omit<Patient, "id" | "created_at">
-
-export const PATIENT_STATUSES = ["Activa", "Pausada", "Dejó", "Finalizó"]
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "")
-const int = (v: unknown) => {
-  const n = Math.round(Number(v))
-  return Number.isFinite(n) && n >= 0 && n <= 100_000_000 ? n : 0
-}
 const day = (v: unknown) => (typeof v === "string" && DAY_RE.test(v) ? v : null)
 
 export function parsePatient(body: Record<string, unknown>): PatientInput | null {
   const name = text(body.name, 160)
   if (!name) return null
-  const next = typeof body.next_appointment === "string" && body.next_appointment ? new Date(body.next_appointment) : null
   return {
     name,
     phone: text(body.phone, 40),
+    email: text(body.email, 160),
     gender: text(body.gender, 20),
     treatments: text(body.treatments, 500),
-    sessions_done: int(body.sessions_done),
-    deposit: int(body.deposit),
-    balance: int(body.balance),
     status: PATIENT_STATUSES.includes(body.status as string) ? (body.status as string) : "Activa",
-    first_session: day(body.first_session),
-    last_session: day(body.last_session),
-    next_appointment: next && !Number.isNaN(next.getTime()) ? next : null,
+    source: text(body.source, 80),
+    birth_date: day(body.birth_date),
     notes: text(body.notes, 4000),
   }
 }
 
-const COLS = "name, phone, gender, treatments, sessions_done, deposit, balance, status, first_session, last_session, next_appointment, notes"
-const values = (p: PatientInput) => [p.name, p.phone, p.gender, p.treatments, p.sessions_done, p.deposit, p.balance, p.status, p.first_session, p.last_session, p.next_appointment, p.notes]
+const values = (p: PatientInput) => [p.name, p.phone, phoneKey(p.phone), p.email, p.gender, p.treatments, p.status, p.source, p.birth_date, p.notes]
 
-export async function listPatients(): Promise<Patient[]> {
-  const { rows } = await (await db()).query<Patient>("select * from patients order by (status = 'Activa') desc, name")
-  return rows
+export async function createPatient(p: PatientInput): Promise<{ id: number } | { error: "telefono_existente"; id: number; name: string }> {
+  return transaction(async (c) => {
+    const key = phoneKey(p.phone)
+    if (key.length >= 6) {
+      const { rows } = await c.query<{ id: number; name: string }>("select id, name from patients where phone_key = $1 limit 1", [key])
+      if (rows[0]) return { error: "telefono_existente", id: rows[0].id, name: rows[0].name } as const
+    }
+    const { rows } = await c.query<{ id: number }>(
+      "insert into patients (name, phone, phone_key, email, gender, treatments, status, source, birth_date, notes) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id",
+      values(p),
+    )
+    await audit(c, "paciente", rows[0].id, "crear", null, p)
+    return { id: rows[0].id }
+  })
 }
 
-export async function createPatient(p: PatientInput): Promise<Patient> {
-  const { rows } = await (await db()).query<Patient>(`insert into patients (${COLS}) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`, values(p))
-  return rows[0]
+export async function updatePatient(id: number, p: PatientInput): Promise<boolean> {
+  return transaction(async (c) => {
+    const { rows: before } = await c.query("select name, phone, email, gender, treatments, status, source, birth_date, notes from patients where id = $1", [id])
+    if (!before[0]) return false
+    await c.query(
+      "update patients set name=$2, phone=$3, phone_key=$4, email=$5, gender=$6, treatments=$7, status=$8, source=$9, birth_date=$10, notes=$11 where id=$1",
+      [id, ...values(p)],
+    )
+    // los datos de contacto del paciente se reflejan en sus turnos
+    await c.query("update bookings set name = $2, phone = $3, email = $4 where patient_id = $1", [id, p.name, p.phone, p.email])
+    await audit(c, "paciente", id, "modificar", before[0], p)
+    return true
+  })
 }
 
-export async function updatePatient(id: number, p: PatientInput): Promise<Patient | null> {
-  const { rows } = await (await db()).query<Patient>(
-    `update patients set name=$2, phone=$3, gender=$4, treatments=$5, sessions_done=$6, deposit=$7, balance=$8, status=$9, first_session=$10, last_session=$11, next_appointment=$12, notes=$13 where id=$1 returning *`,
-    [id, ...values(p)],
+/** Un paciente con turnos o pagos no se borra (se archiva), para no perder historial. */
+export async function deletePatient(id: number): Promise<"ok" | "tiene_historial"> {
+  return transaction(async (c) => {
+    const { rows } = await c.query(
+      "select (select count(*) from bookings where patient_id = $1)::int + (select count(*) from payments where patient_id = $1)::int as n",
+      [id],
+    )
+    if (rows[0].n > 0) return "tiene_historial"
+    const { rows: before } = await c.query("delete from patients where id = $1 returning *", [id])
+    if (before[0]) await audit(c, "paciente", id, "eliminar", before[0], null)
+    return "ok"
+  })
+}
+
+export async function searchPatients(q: string) {
+  const term = `%${q.trim().toLowerCase()}%`
+  const digits = q.replace(/\D/g, "")
+  const { rows } = await (await db()).query<{ id: number; name: string; phone: string }>(
+    `select id, name, phone from patients where lower(name) like $1 ${digits.length >= 3 ? "or regexp_replace(phone, '[^0-9]', '', 'g') like $2" : ""} order by name limit 20`,
+    digits.length >= 3 ? [term, `%${digits}%`] : [term],
   )
-  return rows[0] ?? null
-}
-
-export async function deletePatient(id: number): Promise<void> {
-  await (await db()).query("delete from patients where id = $1", [id])
+  return rows
 }
