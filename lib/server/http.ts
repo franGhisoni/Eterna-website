@@ -1,12 +1,22 @@
-import { cookies, headers } from "next/headers"
+import { headers } from "next/headers"
 import { NextResponse } from "next/server"
-import { SESSION_COOKIE, verifySessionToken } from "../auth"
+import { allowed, currentSession, type Permission } from "./auth-server"
 
+/** Hay alguien con sesión iniciada (cualquier rol). */
 export async function isAdmin(): Promise<boolean> {
-  return verifySessionToken(cookies().get(SESSION_COOKIE)?.value)
+  return (await currentSession()) !== null
 }
 
+/** Sesión con el permiso pedido, o null. */
+export const can = (p: Permission) => allowed(p)
+
 export const unauthorized = () => NextResponse.json({ error: "no_autorizado" }, { status: 401 })
+export const forbidden = () => NextResponse.json({ error: "sin_permiso" }, { status: 403 })
+
+/** Respuesta correcta cuando falta permiso: 401 si no hay sesión, 403 si la hay pero el rol no alcanza. */
+export async function deny() {
+  return (await isAdmin()) ? forbidden() : unauthorized()
+}
 export const badRequest = (error = "datos_invalidos") => NextResponse.json({ error }, { status: 400 })
 
 export function publicBaseUrl(): string {

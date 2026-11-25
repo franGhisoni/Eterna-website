@@ -1,12 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { badRequest, isAdmin, unauthorized } from "@/lib/server/http"
+import {badRequest, can, deny } from "@/lib/server/http"
 import { mercadoPagoEnabled } from "@/lib/server/mercadopago"
 import { getSettings, sanitizeSettings, saveSettings } from "@/lib/server/settings"
 
 export const dynamic = "force-dynamic"
 
 export async function GET() {
-  if (!(await isAdmin())) return unauthorized()
+  const session = await can("agenda") ?? (await can("tasks"))
+  if (!session) return deny()
   const mpToken = process.env.MERCADOPAGO_ACCESS_TOKEN ?? process.env.MERCADO_PAGO_ACCESS_TOKEN ?? ""
   return NextResponse.json({
     settings: await getSettings(),
@@ -19,7 +20,8 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  if (!(await isAdmin())) return unauthorized()
+  const session = await can("settings")
+  if (!session) return deny()
   const body = await req.json().catch(() => null)
   if (!body || typeof body !== "object") return badRequest()
   const next = sanitizeSettings(body, await getSettings())

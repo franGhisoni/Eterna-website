@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { getService } from "@/lib/server/agenda"
-import { badRequest, isAdmin, unauthorized } from "@/lib/server/http"
-import { ADMIN_STATUSES, bookingHistory, createAppointment, getAgendaItem, listAgenda, updateAppointment, type AdminStatus, type AppointmentPatch } from "@/lib/server/ledger"
+import { badRequest, can, deny, forbidden } from "@/lib/server/http"
+import { ADMIN_STATUSES, bookingHistory, professionalBlocker, createAppointment, getAgendaItem, listAgenda, updateAppointment, type AdminStatus, type AppointmentPatch } from "@/lib/server/ledger"
 import { addDays, DAY_RE, todayAR } from "@/lib/time"
 
 export const dynamic = "force-dynamic"
@@ -20,21 +20,28 @@ const status = (v: unknown): AdminStatus | null => (ADMIN_STATUSES.includes(v as
 const blank = (v: unknown) => v === undefined || v === null || v === ""
 
 export async function GET(req: NextRequest) {
-  if (!(await isAdmin())) return unauthorized()
+  const session = await can("agenda")
+  if (!session) return deny()
+  // una profesional ve solo su agenda
+  const own = session.role === "profesional" ? session.professional || "—" : null
   const sp = req.nextUrl.searchParams
   const id = sp.get("id")
   if (id) {
     const booking = await getAgendaItem(id)
+    if (booking && own && booking.professional !== own) return forbidden()
     return booking ? NextResponse.json({ booking, history: await bookingHistory(id) }) : badRequest("no_encontrado")
   }
   const from = sp.get("desde")
   const to = sp.get("hasta")
-  const bookings = await listAgenda({ from: from && DAY_RE.test(from) ? from : addDays(todayAR(), -7), to: to && DAY_RE.test(to) ? to : undefined })
+  const bookings = (await listAgenda({ from: from && DAY_RE.test(from) ? from : addDays(todayAR(), -7), to: to && DAY_RE.test(to) ? to : undefined })).filter(
+    (b) => !own || b.professional === own,
+  )
   return NextResponse.json({ bookings })
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await isAdmin())) return unauthorized()
+  const session = await can("agenda_edit")
+  if (!session) return deny()
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>
   const start = date(b.start)
   const duration = Math.round(Number(b.durationMin))
@@ -47,6 +54,8 @@ export async function POST(req: NextRequest) {
   const patient = b.patient && typeof b.patient === "object" ? (b.patient as Record<string, unknown>) : null
   if (!start || !Number.isFinite(duration) || duration < 5 || duration > 600 || !serviceName || price === null || deposit === null || !st) return badRequest()
   if (!blank(b.finalPrice) && finalPrice === null) return badRequest()
+  const why = await professionalBlocker(text(b.professional, 120), service?.id ?? null)
+  if (why) return NextResponse.json({ error: "profesional_no_habilitada", detail: why }, { status: 409 })
   const r = await createAppointment({
     patientId: Number(b.patientId) || null,
     patient: patient ? { name: text(patient.name, 160), phone: text(patient.phone, 40), email: text(patient.email, 160) } : undefined,
@@ -64,14 +73,22 @@ export async function POST(req: NextRequest) {
     status: st,
     source: b.source === "paciente" ? "paciente" : "admin",
     allowOverlap: b.allowOverlap === true,
-  })
+  }, session.username)
   return r.ok ? NextResponse.json({ booking: r.booking }) : NextResponse.json(r, { status: 409 })
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!(await isAdmin())) return unauthorized()
+  const session = await can("agenda")
+  if (!session) return deny()
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>
   if (typeof b.id !== "string") return badRequest()
+  // una profesional solo puede cargar observaciones y marcar realizado/ausente en sus propios turnos
+  if (session.role === "profesional") {
+    const current = await getAgendaItem(b.id)
+    if (!current || current.professional !== session.professional) return forbidden()
+    const keys = Object.keys(b).filter((k) => k !== "id" && k !== "allowOverlap")
+    if (keys.some((k) => k !== "notes" && k !== "status") || (b.status !== undefined && b.status !== "done" && b.status !== "no_show")) return forbidden()
+  }
   const patch: AppointmentPatch = {}
   if (b.start !== undefined) {
     const d = date(b.start)
@@ -105,6 +122,11 @@ export async function PATCH(req: NextRequest) {
     patch.status = s
   }
   patch.allowOverlap = b.allowOverlap === true
-  const r = await updateAppointment(b.id, patch)
+  if (patch.professional !== undefined || patch.serviceId !== undefined) {
+    const current = await getAgendaItem(b.id)
+    const why = await professionalBlocker(patch.professional ?? current?.professional ?? "", patch.serviceId !== undefined ? patch.serviceId : current?.service_id ?? null)
+    if (why) return NextResponse.json({ error: "profesional_no_habilitada", detail: why }, { status: 409 })
+  }
+  const r = await updateAppointment(b.id, patch, session.username)
   return r.ok ? NextResponse.json({ booking: r.booking }) : NextResponse.json(r, { status: r.error === "no_encontrado" ? 404 : 409 })
 }

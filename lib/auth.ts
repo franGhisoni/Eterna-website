@@ -1,6 +1,9 @@
 export const SESSION_COOKIE = "eterna_admin"
 export const SESSION_TTL_S = 7 * 24 * 3600
 
+export type Role = "owner" | "recepcion" | "profesional"
+export type SessionInfo = { uid: number; username: string; role: Role; professional: string }
+
 const enc = new TextEncoder()
 
 function secret(): string {
@@ -22,21 +25,40 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0
 }
 
-export async function createSessionToken(): Promise<string> {
+const toB64 = (s: string) => {
+  const bytes = enc.encode(s)
+  let bin = ""
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_")
+}
+const fromB64 = (s: string) => {
+  const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"))
+  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))
+}
+
+/** Token: exp.datos.firma. El usuario y el rol van firmados, así que no se pueden alterar desde el navegador. */
+export async function createSessionToken(s: SessionInfo): Promise<string> {
   const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_S
-  return `${exp}.${await hmac(`admin:${exp}`)}`
+  const data = toB64(JSON.stringify([s.uid, s.username, s.role, s.professional]))
+  return `${exp}.${data}.${await hmac(`admin:${exp}:${data}`)}`
+}
+
+export async function readSessionToken(token: string | undefined): Promise<SessionInfo | null> {
+  if (!token) return null
+  const [expRaw, data, sig] = token.split(".")
+  const exp = Number(expRaw)
+  if (!Number.isInteger(exp) || exp < Date.now() / 1000 || !data || !sig) return null
+  try {
+    if (!safeEqual(sig, await hmac(`admin:${exp}:${data}`))) return null
+    const [uid, username, role, professional] = JSON.parse(fromB64(data)) as [number, string, Role, string]
+    return { uid, username, role, professional }
+  } catch {
+    return null
+  }
 }
 
 export async function verifySessionToken(token: string | undefined): Promise<boolean> {
-  if (!token) return false
-  const [expRaw, sig] = token.split(".")
-  const exp = Number(expRaw)
-  if (!Number.isInteger(exp) || exp < Date.now() / 1000 || !sig) return false
-  try {
-    return safeEqual(sig, await hmac(`admin:${exp}`))
-  } catch {
-    return false
-  }
+  return (await readSessionToken(token)) !== null
 }
 
 export async function checkCredentials(user: string, password: string): Promise<boolean> {

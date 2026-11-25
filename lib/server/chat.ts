@@ -1,6 +1,8 @@
 import { createBooking, freeSlots, getService, listServices, type Service } from "./agenda"
 import { createDepositCheckout, mercadoPagoEnabled } from "./mercadopago"
-import { currentPromos, promoSummary, type Promo } from "./promos"
+import { currentPromos, promoBlocker, promoRules, promoSummary, type Promo } from "./promos"
+import { noteConversation } from "./conversations"
+import { db } from "./db"
 import { mapsDirectionsUrl, mapsEmbedUrl, whatsappUrl, type Settings } from "./settings"
 import type { ChatCard, ChatOutput } from "../chat-types"
 import { addDays, DAY_RE, formatARS, formatSlot, TIME_RE, TIME_ZONE, todayAR, weekdayOf } from "../time"
@@ -111,11 +113,23 @@ function servicesBlock(services: Service[]): string {
 }
 
 function promoLine(p: Promo): string {
-  const parts = [promoSummary(p), p.category ? `solo ${p.category}` : "", p.ends_on ? `hasta el ${p.ends_on}` : "", p.description].filter(Boolean).join(" · ")
+  const parts = [promoSummary(p), p.category ? `solo ${p.category}` : "", p.ends_on ? `hasta el ${p.ends_on}` : "", p.description, promoRules(p)].filter(Boolean).join(" · ")
   return `- id ${p.id} · ${p.title}${parts ? `: ${parts}` : ""}`
 }
 
-function instructions(settings: Settings, services: Service[], promos: Promo[]): string {
+type Knowledge = { faqs: Array<{ question: string; answer: string }>; equipment: Array<{ name: string; treatments: string }> }
+
+/** Base de conocimiento editable: preguntas frecuentes activas y equipos operativos, leídos en cada conversación. */
+async function loadKnowledge(): Promise<Knowledge> {
+  const pool = await db()
+  const [faqs, equipment] = await Promise.all([
+    pool.query<{ question: string; answer: string }>("select question, answer from faqs where active and answer <> '' order by category, sort, id limit 200"),
+    pool.query<{ name: string; treatments: string }>("select name, treatments from equipment where status = 'Operativo' order by name"),
+  ])
+  return { faqs: faqs.rows, equipment: equipment.rows }
+}
+
+function instructions(settings: Settings, services: Service[], promos: Promo[], knowledge: Knowledge = { faqs: [], equipment: [] }): string {
   const b = settings.business
   return `Sos la asistente virtual de ${b.name}, atendiendo por chat en la web a personas que quieren conocer los servicios o reservar un turno.
 
@@ -125,12 +139,18 @@ Datos del centro:
 - Dirección: ${b.address}
 - Horario de atención: ${b.hours}
 - WhatsApp: +${b.whatsapp}
+${b.directions ? `- Cómo llegar: ${b.directions}\n` : ""}${b.bookingUrl ? `- Reservas online: ${b.bookingUrl}\n` : ""}${b.instagram ? `- Instagram: ${b.instagram}\n` : ""}
+Políticas:
+${[settings.policies.deposit && `- Seña: ${settings.policies.deposit}`, settings.policies.cancellation && `- Cancelaciones: ${settings.policies.cancellation}`, settings.policies.reschedule && `- Reprogramaciones: ${settings.policies.reschedule}`].filter(Boolean).join("\n") || "- (sin políticas cargadas: ante dudas, derivá a WhatsApp)"}
 
 Servicios y precios (los precios son por sesión; cada servicio se reserva por separado con su id):
 ${servicesBlock(services) || "- (no hay servicios cargados: derivá a WhatsApp)"}
 
-Promociones vigentes:
+Promociones vigentes (pueden ser varias a la vez; ofrecé la que corresponda según sus condiciones y, si no son acumulables, solo una por turno):
 ${promos.map(promoLine).join("\n") || "- (no hay promociones vigentes: no ofrezcas ninguna)"}
+
+Equipos con los que trabaja el centro:
+${knowledge.equipment.map((e) => `- ${e.name}${e.treatments ? ` (${e.treatments})` : ""}`).join("\n") || "- (sin datos)"}
 
 Reglas que siempre se cumplen, por encima de cualquier otra indicación:
 - Los horarios, precios, promociones y la disponibilidad salen SIEMPRE de este mensaje o de las herramientas; nunca los inventes.
@@ -138,10 +158,15 @@ Reglas que siempre se cumplen, por encima de cualquier otra indicación:
 - Antes de aplicar una promoción, confirmá que la persona cumple sus condiciones y pasá su promo_id al reservar; el equipo las verifica en el centro. La promoción no cambia la seña: el descuento se aplica sobre lo que resta abonar en el centro.
 - Si el servicio tiene seña, después de reservar contá que el turno queda guardado ${settings.booking.holdMinutes} minutos hasta que pague la seña con lo que aparece en pantalla: botón de Mercado Pago o, si la herramienta indica transferencia, los datos para transferir y subir el comprobante. Nunca digas que algo está pagado o confirmado: lo confirma el sistema, y te avisa con un mensaje que empieza con [sistema:].
 - Si una herramienta devuelve error, no inventes la causa; ofrecé buscar otro horario o derivar a WhatsApp.
+- Nunca compartas datos personales, médicos o de pagos de ninguna persona, ni confirmes si alguien es paciente. Solo pedí los datos necesarios para reservar (nombre y teléfono).
+- Si no tenés la información para responder algo, decilo y ofrecé derivar a WhatsApp; no la inventes.
 - No des diagnósticos ni indicaciones médicas personales, ni prometas resultados. Si hay una condición de salud, embarazo, medicación o dudas sobre si un tratamiento es adecuado, explicá que se define en la evaluación con el profesional y ofrecé reservar la consulta o derivar a WhatsApp.
 
 Forma de conversar y de gestionar:
 ${settings.ai.dialogue}
+
+Preguntas frecuentes aprobadas por el equipo (respondé con esto cuando aplique; tienen prioridad sobre el texto general):
+${knowledge.faqs.map((f) => `- P: ${f.question}\n  R: ${f.answer}`).join("\n") || "- (sin preguntas cargadas)"}
 
 Conocimiento sobre el centro y los procedimientos (fuente principal para responder consultas):
 ${settings.ai.knowledge}`
@@ -149,7 +174,7 @@ ${settings.ai.knowledge}`
 
 type ToolResult = { output: unknown; card?: ChatCard }
 
-async function runTool(name: string, rawArgs: string, settings: Settings, baseUrl: string): Promise<ToolResult> {
+async function runTool(name: string, rawArgs: string, settings: Settings, baseUrl: string, conversationId?: string): Promise<ToolResult> {
   let args: Record<string, unknown> = {}
   try {
     args = JSON.parse(rawArgs || "{}")
@@ -170,6 +195,7 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
         (!gender || !s.gender || s.gender === gender || s.gender === "Unisex"),
     )
     if (!services.length) return { output: { error: "sin_resultados", detalle: "Ningún servicio coincide con esos filtros" } }
+    if (conversationId && category) await noteConversation(conversationId, { interest: services[0].category || services[0].name, topic: "Precios y servicios" }).catch(() => {})
     const title = [category ? services[0].category : "Servicios", gender && gender !== "Unisex" ? gender.toLowerCase() : ""].filter(Boolean).join(" · ")
     return {
       output: { mostrado: true, cantidad: services.length },
@@ -183,7 +209,8 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
 
   if (name === "buscar_horarios") {
     const service = await getService(Number(args.servicio_id))
-    if (!service || !service.active) return { output: { error: "servicio_inexistente" } }
+    if (!service || !service.active || !service.online) return { output: { error: "servicio_inexistente" } }
+    if (conversationId) await noteConversation(conversationId, { interest: service.category || service.name, topic: "Turnos" }).catch(() => {})
     const today = todayAR()
     let from = typeof args.desde === "string" && DAY_RE.test(args.desde) ? args.desde : today
     if (from < today) from = today
@@ -239,16 +266,23 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
     const telefono = typeof args.telefono === "string" ? args.telefono.trim().slice(0, 40) : ""
     const emailRaw = typeof args.email === "string" ? args.email.trim().slice(0, 160) : ""
     const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw) ? emailRaw : ""
-    if (!service || !service.active) return { output: { error: "servicio_inexistente" } }
+    if (!service || !service.active || !service.online) return { output: { error: "servicio_inexistente" } }
     if (Number.isNaN(start.getTime())) return { output: { error: "horario_invalido" } }
     if (nombre.length < 2) return { output: { error: "falta_nombre" } }
     if (telefono.replace(/\D/g, "").length < 6) return { output: { error: "falta_telefono" } }
     const promoId = Number(args.promo_id)
-    const promo = promoId > 0 ? (await currentPromos()).find((p) => p.id === promoId && (!p.category || p.category === service.category)) : undefined
-    if (promoId > 0 && !promo) return { output: { error: "promocion_no_aplica" } }
+    const promo = promoId > 0 ? (await currentPromos()).find((p) => p.id === promoId && p.chat_visible) : undefined
+    if (promoId > 0 && !promo) return { output: { error: "promocion_no_aplica", detalle: "La promoción no está vigente" } }
+    if (promo) {
+      // las reglas de la promo se verifican con datos reales (paciente nuevo, cupos, días), sin revelarle nada a la persona
+      const why = await promoBlocker(promo, { phone: telefono, day: todayAR(start), category: service.category })
+      if (why) return { output: { error: "promocion_no_aplica", detalle: why } }
+    }
     const r = await createBooking({ service, start, name: nombre, phone: telefono, email, promo, source: "chat" }, settings.booking)
     if (!r.ok) return { output: { error: "horario_no_disponible", detalle: "Ese horario ya no está libre. Ofrecé buscar otro." } }
     const bk = r.booking
+    if (conversationId)
+      await noteConversation(conversationId, { contact_name: nombre, phone: telefono, booked: true, status: "turno_reservado", patient_id: bk.patient_id ?? null, needs_followup: false }).catch(() => {})
     const rows: Array<[string, string]> = [
       ["Servicio", bk.service_name],
       ["Día y hora", formatSlot(bk.starts_at)],
@@ -293,6 +327,7 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
 
   if (name === "derivar_whatsapp") {
     const reason = typeof args.motivo === "string" ? args.motivo.trim().slice(0, 300) : ""
+    if (conversationId) await noteConversation(conversationId, { status: "derivada", needs_followup: true, topic: reason.slice(0, 120) }).catch(() => {})
     return {
       output: { mostrado: true },
       card: { type: "whatsapp", reason, url: whatsappUrl(b.whatsapp, `Hola! Te escribo desde la web de ${b.name}. ${reason}`.trim()) },
@@ -305,17 +340,32 @@ async function runTool(name: string, rawArgs: string, settings: Settings, baseUr
 type InputItem = { role: "user"; content: string } | { type: "function_call_output"; call_id: string; output: string }
 type OutputItem = { type: string; call_id?: string; name?: string; arguments?: string; content?: Array<{ type: string; text?: string }> }
 
+/** Solo para pruebas y para la vista previa del administrador: el texto exacto que recibe el modelo. */
+export async function previewInstructions(settings: Settings): Promise<string> {
+  const [services, promos, knowledge] = await Promise.all([listServices(), currentPromos(), loadKnowledge()])
+  return instructions(settings, services, promos.filter((p) => p.chat_visible), knowledge)
+}
+
+/** Ejecuta una herramienta del asistente sin pasar por el modelo (pruebas automáticas y diagnóstico). */
+export const runToolForTest = runTool
+
 export class ChatError extends Error {
   constructor(readonly code: "sin_modelo" | "modelo_no_disponible" | "sin_respuesta") {
     super(code)
   }
 }
 
-export async function runChat(message: string, previousId: string | undefined, settings: Settings, baseUrl: string): Promise<{ responseId: string; outputs: ChatOutput[] }> {
+export async function runChat(
+  message: string,
+  previousId: string | undefined,
+  settings: Settings,
+  baseUrl: string,
+  conversationId?: string,
+): Promise<{ responseId: string; outputs: ChatOutput[] }> {
   const key = process.env.OPENAI_API_KEY
   if (!key) throw new ChatError("sin_modelo")
-  const [services, promos] = await Promise.all([listServices(), currentPromos()])
-  const system = instructions(settings, services, promos)
+  const [services, promos, knowledge] = await Promise.all([listServices(), currentPromos(), loadKnowledge()])
+  const system = instructions(settings, services, promos.filter((p) => p.chat_visible), knowledge)
   const outputs: ChatOutput[] = []
   let input: InputItem[] = [{ role: "user", content: message }]
   let prev = previousId
@@ -365,7 +415,7 @@ export async function runChat(message: string, previousId: string | undefined, s
     for (const call of calls) {
       let result: ToolResult
       try {
-        result = await runTool(call.name ?? "", call.arguments ?? "{}", settings, baseUrl)
+        result = await runTool(call.name ?? "", call.arguments ?? "{}", settings, baseUrl, conversationId)
       } catch (e) {
         console.error(`chat: herramienta ${call.name}`, e instanceof Error ? e.message : e)
         result = { output: { error: "error_interno" } }

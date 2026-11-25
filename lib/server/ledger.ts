@@ -485,11 +485,75 @@ export async function getPatientSummary(id: number): Promise<PatientSummary | nu
   return rows[0] ? withBalance(rows[0]) : null
 }
 
+export type TreatmentSummary = {
+  category: string
+  status: string
+  notes: string
+  sessions_done: number
+  first_session: Date | null
+  last_session: Date | null
+  next_session: Date | null
+  zones: string
+  professionals: string
+}
+
+/** Un historial por tratamiento (depilación, HIFU, …), armado con los turnos del paciente. */
+export async function patientTreatments(id: number): Promise<TreatmentSummary[]> {
+  const { rows } = await (await db()).query<TreatmentSummary>(
+    `with t as (
+       select coalesce(nullif(s.category, ''), b.service_name) as category, b.*
+       from bookings b left join services s on s.id = b.service_id
+       where b.patient_id = $1 and b.status not in ('cancelled')
+     )
+     select c.category,
+       coalesce(pt.status, 'Activo') as status, coalesce(pt.notes, '') as notes,
+       (select count(*) from t where t.category = c.category and t.status = 'done')::int as sessions_done,
+       (select min(starts_at) from t where t.category = c.category and t.status = 'done') as first_session,
+       (select max(starts_at) from t where t.category = c.category and t.status = 'done') as last_session,
+       (select min(starts_at) from t where t.category = c.category and t.starts_at > now() and t.status in ('reserved','pending_payment','pending_review','confirmed','conflict')) as next_session,
+       (select string_agg(distinct nullif(zones, ''), ' · ') from t where t.category = c.category) as zones,
+       (select string_agg(distinct nullif(professional, ''), ', ') from t where t.category = c.category) as professionals
+     from (select distinct category from t union select category from patient_treatments where patient_id = $1) c
+     left join patient_treatments pt on pt.patient_id = $1 and pt.category = c.category
+     order by c.category`,
+    [id],
+  )
+  return rows.map((r) => ({ ...r, zones: r.zones ?? "", professionals: r.professionals ?? "" }))
+}
+
+export const TREATMENT_STATUSES = ["Activo", "Pausado", "Finalizado", "Abandonado"]
+
+export async function setTreatmentStatus(patientId: number, category: string, status: string, notes: string, actor: string) {
+  await transaction(async (c) => {
+    await c.query(
+      `insert into patient_treatments (patient_id, category, status, notes, updated_at) values ($1, $2, $3, $4, now())
+       on conflict (patient_id, category) do update set status = excluded.status, notes = excluded.notes, updated_at = now()`,
+      [patientId, category, status, notes],
+    )
+    await audit(c, "tratamiento", `${patientId}:${category}`, "estado", null, { status, notes }, actor)
+  })
+}
+
 export async function patientProfile(id: number) {
   const patient = await getPatientSummary(id)
   if (!patient) return null
-  const [bookings, payments] = await Promise.all([listAgenda({ patientId: id, limit: 500 }), listPayments({ patientId: id })])
-  return { patient, bookings, payments }
+  const [bookings, payments, treatments] = await Promise.all([listAgenda({ patientId: id, limit: 500 }), listPayments({ patientId: id }), patientTreatments(id)])
+  return { patient, bookings, payments, treatments }
+}
+
+/** Verifica que la profesional esté activa y habilitada para el tratamiento. Devuelve el motivo si no lo está. */
+export async function professionalBlocker(name: string, serviceId: number | null): Promise<string | null> {
+  if (!name) return null
+  const pool = await db()
+  const { rows } = await pool.query<{ active: boolean; treatments: string }>("select active, treatments from professionals where name = $1", [name])
+  if (!rows[0]) return null // nombre libre (por ejemplo, alguien externo): no se bloquea
+  if (!rows[0].active) return `${name} está dada de baja`
+  if (!serviceId || !rows[0].treatments.trim()) return null
+  const { rows: s } = await pool.query<{ category: string; name: string }>("select category, name from services where id = $1", [serviceId])
+  if (!s[0]) return null
+  const allowedList = rows[0].treatments.toLowerCase().split(/[,;\n]/).map((x) => x.trim()).filter(Boolean)
+  const ok = allowedList.some((t) => s[0].category.toLowerCase().includes(t) || s[0].name.toLowerCase().includes(t) || t.includes(s[0].category.toLowerCase()))
+  return ok ? null : `${name} no está habilitada para ${s[0].category || s[0].name}`
 }
 
 /* ───────────── Resumen para el panel ───────────── */

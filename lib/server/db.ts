@@ -152,6 +152,150 @@ create table if not exists migrations (
   name text primary key,
   ran_at timestamptz not null default now()
 );
+
+-- ── Prioridad 2: jornadas, profesionales, equipos, servicios ampliados, tratamientos ──
+alter table agenda_ranges add column if not exists professional text not null default '';
+alter table agenda_ranges add column if not exists slot_minutes int;
+alter table agenda_ranges add column if not exists gap_minutes int not null default 0;
+alter table agenda_ranges add column if not exists published boolean not null default true;
+alter table agenda_ranges add column if not exists notes text not null default '';
+
+create table if not exists agenda_blocks (
+  id serial primary key,
+  day date not null,
+  start_time text not null,
+  end_time text not null,
+  professional text not null default '',
+  reason text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists agenda_blocks_day on agenda_blocks(day);
+
+create table if not exists professionals (
+  id serial primary key,
+  name text not null unique,
+  phone text not null default '',
+  email text not null default '',
+  specialty text not null default '',
+  treatments text not null default '',
+  active boolean not null default true,
+  notes text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists equipment (
+  id serial primary key,
+  name text not null,
+  model text not null default '',
+  treatments text not null default '',
+  status text not null default 'Operativo',
+  notes text not null default '',
+  created_at timestamptz not null default now()
+);
+
+alter table services add column if not exists online boolean not null default true;
+alter table services add column if not exists visible_web boolean not null default true;
+alter table services add column if not exists audience text not null default '';
+alter table services add column if not exists equipment text not null default '';
+alter table services add column if not exists indications text not null default '';
+alter table services add column if not exists contraindications text not null default '';
+alter table services add column if not exists promo_price int;
+
+create table if not exists patient_treatments (
+  patient_id int not null references patients(id) on delete cascade,
+  category text not null,
+  status text not null default 'Activo',
+  notes text not null default '',
+  updated_at timestamptz not null default now(),
+  primary key (patient_id, category)
+);
+
+alter table patients add column if not exists marketing_consent boolean not null default false;
+
+-- ── Prioridad 3: promos con reglas, conocimiento del asistente, conversaciones ──
+alter table promos add column if not exists chat_visible boolean not null default true;
+alter table promos add column if not exists audience text not null default 'todos';
+alter table promos add column if not exists max_uses int not null default 0;
+alter table promos add column if not exists per_patient int not null default 0;
+alter table promos add column if not exists stackable boolean not null default false;
+alter table promos add column if not exists priority int not null default 0;
+alter table promos add column if not exists weekdays text not null default '';
+alter table promos add column if not exists conditions text not null default '';
+
+create table if not exists faqs (
+  id serial primary key,
+  question text not null,
+  answer text not null default '',
+  category text not null default 'General',
+  active boolean not null default true,
+  source text not null default 'admin',
+  sort int not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists conversations (
+  id uuid primary key default gen_random_uuid(),
+  response_id text,
+  contact_name text not null default '',
+  phone text not null default '',
+  patient_id int references patients(id) on delete set null,
+  status text not null default 'nueva',
+  topic text not null default '',
+  interest text not null default '',
+  booked boolean not null default false,
+  needs_followup boolean not null default false,
+  human boolean not null default false,
+  notes text not null default '',
+  last_message text not null default '',
+  last_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+create index if not exists conversations_last on conversations(last_at desc);
+
+create table if not exists conversation_messages (
+  id serial primary key,
+  conversation_id uuid not null references conversations(id) on delete cascade,
+  role text not null,
+  text text not null default '',
+  card jsonb,
+  author text not null default '',
+  flagged boolean not null default false,
+  correction text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists conversation_messages_conv on conversation_messages(conversation_id, id);
+
+-- ── Prioridad 4: tareas, usuarios ──
+create table if not exists tasks (
+  id serial primary key,
+  title text not null,
+  description text not null default '',
+  kind text not null default 'general',
+  patient_id int references patients(id) on delete set null,
+  booking_id uuid references bookings(id) on delete set null,
+  conversation_id uuid references conversations(id) on delete set null,
+  assignee text not null default '',
+  due_on date,
+  done boolean not null default false,
+  auto_key text unique,
+  comments jsonb not null default '[]',
+  created_by text not null default 'admin',
+  created_at timestamptz not null default now(),
+  done_at timestamptz
+);
+
+create table if not exists users (
+  id serial primary key,
+  username text not null unique,
+  name text not null default '',
+  role text not null default 'recepcion',
+  password_hash text not null,
+  professional text not null default '',
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  last_login timestamptz
+);
 `
 
 const PHONE_KEY = (col: string) => `right(regexp_replace(${col}, '\\D', '', 'g'), 8)`
@@ -202,6 +346,64 @@ select coalesce(nullif(p.treatments, ''), 'Sesión'), p.next_appointment, p.next
 from patients p
 where p.next_appointment is not null and p.next_appointment > now()
   and not exists (select 1 from bookings b where b.patient_id = p.id and b.starts_at = p.next_appointment);
+`,
+  ],
+  [
+    "2026-11-equipos-profesionales-conocimiento",
+    `
+-- profesionales que estaban como lista de texto en la configuración
+insert into professionals (name)
+select distinct trim(x) from settings s, jsonb_array_elements_text(coalesce(s.value->'professionals', '[]'::jsonb)) x
+where s.key = 'team' and trim(x) <> ''
+on conflict (name) do nothing;
+insert into professionals (name)
+select distinct professional from bookings where professional <> ''
+on conflict (name) do nothing;
+
+-- equipos conocidos del centro
+insert into equipment (name, model, treatments, status)
+select 'Alma Láser Soprano Ice Platinum', 'Soprano Ice Platinum', 'Depilación Definitiva', 'Operativo'
+where not exists (select 1 from equipment where name ilike '%soprano%');
+insert into equipment (name, model, treatments, status)
+select 'HIFU 25D 360 MAX', '25D 360 MAX', 'HIFU', 'Operativo'
+where not exists (select 1 from equipment where name ilike '%hifu%');
+
+-- precios de referencia: se cargan INACTIVOS para que administración los revise antes de publicarlos
+insert into services (name, category, gender, kind, duration_min, price, promo_price, deposit, active, online, sort, description)
+select v.name, 'Depilación Definitiva', v.gender, 'Combo', 30, v.price, v.promo, 0, false, false, 900 + v.ord, 'Precio de referencia a revisar antes de activar'
+from (values
+  ('Básico', 'Femenina', 38000, 30400, 1),
+  ('Cavado + tira', 'Femenina', 30000, 24000, 2),
+  ('Cuerpo completo', 'Femenina', 54000, 43000, 3),
+  ('Barba', 'Masculino', 24000, null, 4),
+  ('Pecho', 'Masculino', 35000, null, 5),
+  ('Abdomen', 'Masculino', 27000, null, 6),
+  ('Espalda baja', 'Masculino', 30000, null, 7),
+  ('Cuerpo completo', 'Masculino', 63999, null, 8)
+) as v(name, gender, price, promo, ord)
+where not exists (select 1 from services s where lower(s.name) = lower(v.name) and s.gender = v.gender);
+
+-- preguntas frecuentes: con respuesta solo lo que está confirmado; el resto queda para completar (inactivo)
+insert into faqs (question, answer, category, active, sort)
+select q, a, c, a <> '', o from (values
+  ('¿Dónde están ubicados?', 'Estamos dentro del Instituto Ghisoni, en José Pereyra Lucena 575, Lomas de Zamora.', 'Institucional', 1),
+  ('¿Qué equipo utilizan para la depilación definitiva?', 'Trabajamos con Alma Láser Soprano Ice Platinum.', 'Depilación definitiva', 2),
+  ('¿Qué equipo utilizan para HIFU?', 'Usamos el equipo HIFU 25D 360 MAX, para aplicaciones faciales y corporales. Antes de hacerlo se evalúa si es adecuado para cada persona.', 'HIFU', 3),
+  ('¿Cómo reservo un turno?', 'Podés reservar por este chat (https://eterna.ghisoni.com.ar/chat) o escribiendo por WhatsApp al +54 11 4042-0769.', 'Reservas', 4),
+  ('¿La depilación definitiva elimina el 100% del vello?', 'Los resultados son progresivos y varían según la persona, el tipo de vello, la piel, la zona y la constancia. No se puede garantizar la eliminación total del vello.', 'Depilación definitiva', 5),
+  ('¿Cuánto tengo que dejar de seña?', '', 'Reservas', 6),
+  ('¿Qué medios de pago aceptan?', '', 'Pagos', 7),
+  ('¿Duele la depilación?', '', 'Depilación definitiva', 8),
+  ('¿Cuántas sesiones necesito?', '', 'Depilación definitiva', 9),
+  ('¿Qué pasa si falto a una sesión?', '', 'Reservas', 10),
+  ('¿Cómo tengo que prepararme?', '', 'Depilación definitiva', 11),
+  ('¿Se utiliza gel? ¿Es descartable?', '', 'Depilación definitiva', 12),
+  ('¿Puedo hacerme el tratamiento si tengo tatuajes?', '', 'Depilación definitiva', 13),
+  ('¿Puedo hacerme el tratamiento si tengo implantes dentales?', '', 'Depilación definitiva', 14),
+  ('¿Cuánto duran los resultados?', '', 'General', 15),
+  ('¿Cómo llego?', '', 'Institucional', 16)
+) as v(q, a, c, o)
+where not exists (select 1 from faqs);
 `,
   ],
 ]

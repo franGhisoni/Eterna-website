@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server"
-import { isAdmin, unauthorized } from "@/lib/server/http"
+import {can, deny } from "@/lib/server/http"
 import { dashboard } from "@/lib/server/ledger"
 
 export const dynamic = "force-dynamic"
 
 export async function GET() {
-  if (!(await isAdmin())) return unauthorized()
+  const session = await can("agenda")
+  if (!session) return deny()
   return NextResponse.json(await dashboard())
 }

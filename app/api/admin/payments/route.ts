@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { badRequest, isAdmin, unauthorized } from "@/lib/server/http"
+import {badRequest, can, deny } from "@/lib/server/http"
 import { addPayment, deletePayment, listPayments } from "@/lib/server/ledger"
 import { getSettings } from "@/lib/server/settings"
 import { DAY_RE } from "@/lib/time"
@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic"
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "")
 
 export async function GET(req: NextRequest) {
-  if (!(await isAdmin())) return unauthorized()
+  const session = await can("payments")
+  if (!session) return deny()
   const sp = req.nextUrl.searchParams
   const from = sp.get("desde")
   const to = sp.get("hasta")
@@ -36,7 +37,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await isAdmin())) return unauthorized()
+  const session = await can("payments")
+  if (!session) return deny()
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>
   const amount = Math.round(Number(b.amount))
   const { payments } = await getSettings()
@@ -44,7 +46,8 @@ export async function POST(req: NextRequest) {
   if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000_000 || !method || !payments.methods.includes(method)) return badRequest()
   const bookingId = typeof b.bookingId === "string" && /^[0-9a-f-]{36}$/i.test(b.bookingId) ? b.bookingId : null
   const paidAt = typeof b.paidAt === "string" && b.paidAt ? new Date(b.paidAt) : null
-  const p = await addPayment({
+  const p = await addPayment(
+    {
     bookingId,
     patientId: Number(b.patientId) || null,
     amount,
@@ -52,13 +55,16 @@ export async function POST(req: NextRequest) {
     concept: text(b.concept, 60) || "Pago",
     notes: text(b.notes, 500),
     paidAt: paidAt && !Number.isNaN(paidAt.getTime()) ? paidAt : null,
-  })
+  },
+    session.username,
+  )
   return p ? NextResponse.json({ payment: p }) : badRequest("no_encontrado")
 }
 
 export async function DELETE(req: NextRequest) {
-  if (!(await isAdmin())) return unauthorized()
+  const session = await can("payments")
+  if (!session) return deny()
   const id = Number(req.nextUrl.searchParams.get("id"))
   if (!Number.isInteger(id)) return badRequest()
-  return (await deletePayment(id)) ? NextResponse.json({ ok: true }) : badRequest("no_encontrado")
+  return (await deletePayment(id, session.username)) ? NextResponse.json({ ok: true }) : badRequest("no_encontrado")
 }

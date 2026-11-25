@@ -19,7 +19,7 @@ const ERRORS: Record<string, string> = {
   demasiados_mensajes: "Recibimos muchos mensajes seguidos. Esperá unos minutos y probá de nuevo.",
 }
 
-function readStored(): { messages: Message[]; responseId?: string } | null {
+function readStored(): { messages: Message[]; responseId?: string; conversationId?: string; staffSeen?: number } | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY)
     return raw ? JSON.parse(raw) : null
@@ -150,6 +150,9 @@ export default function ChatPage() {
   const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
   const responseId = useRef<string | undefined>(undefined)
+  const conversationId = useRef<string | undefined>(undefined)
+  const staffSeen = useRef(0)
+  const [human, setHuman] = useState(false)
   const nextId = useRef(1)
   const endRef = useRef<HTMLDivElement>(null)
   const boxRef = useRef<HTMLTextAreaElement>(null)
@@ -163,6 +166,8 @@ export default function ChatPage() {
     if (stored?.messages?.length) {
       setMessages(stored.messages)
       responseId.current = stored.responseId
+      conversationId.current = stored.conversationId
+      staffSeen.current = stored.staffSeen ?? 0
       nextId.current = Math.max(...stored.messages.map((m) => m.id)) + 1
     }
     const day = params.get("fecha")
@@ -175,12 +180,35 @@ export default function ChatPage() {
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ messages: messages.slice(-60), responseId: responseId.current }))
+      sessionStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ messages: messages.slice(-60), responseId: responseId.current, conversationId: conversationId.current, staffSeen: staffSeen.current }),
+      )
     } catch {}
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
   }, [messages, busy])
 
   const add = (items: Array<Omit<Message, "id">>) => setMessages((v) => [...v, ...items.map((m) => ({ ...m, id: nextId.current++ }))])
+
+  // cuando una persona del equipo toma la conversación, sus respuestas llegan acá
+  useEffect(() => {
+    const poll = async () => {
+      if (!conversationId.current) return
+      try {
+        const r = await fetch(`/api/chat?conversacion=${conversationId.current}&desde=${staffSeen.current}`)
+        const d = (await r.json()) as { ok: boolean; human: boolean; messages: Array<{ id: number; text: string }>; last: number }
+        if (!d.ok) return
+        setHuman(d.human)
+        if (d.messages.length) {
+          staffSeen.current = d.last
+          add(d.messages.map((m) => ({ role: "assistant" as const, text: m.text })))
+        }
+      } catch {}
+    }
+    const t = setInterval(poll, human ? 4000 : 15000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [human])
 
   async function send(raw: string) {
     const text = raw.trim()
@@ -193,9 +221,14 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: [...pendingContext.current.splice(0), text].join("\n"), previousResponseId: responseId.current }),
+        body: JSON.stringify({ message: [...pendingContext.current.splice(0), text].join("\n"), previousResponseId: responseId.current, conversationId: conversationId.current }),
       })
-      const data = (await res.json().catch(() => ({ ok: false, error: "error_interno" }))) as ChatResponse
+      const data = (await res.json().catch(() => ({ ok: false, error: "error_interno" }))) as ChatResponse & { conversationId?: string; human?: boolean }
+      if (data.conversationId) conversationId.current = data.conversationId
+      if (data.ok && data.human) {
+        setHuman(true)
+        return
+      }
       if (!data.ok) {
         add([{ role: "assistant", text: ERRORS[data.error] ?? "No pude responderte ahora. ¿Probamos de nuevo?" }])
         return
@@ -212,6 +245,9 @@ export default function ChatPage() {
 
   const reset = () => {
     responseId.current = undefined
+    conversationId.current = undefined
+    staffSeen.current = 0
+    setHuman(false)
     nextId.current = 1
     setMessages([{ id: 0, role: "assistant", text: WELCOME }])
     try {
@@ -270,6 +306,9 @@ export default function ChatPage() {
                 </button>
               ))}
             </div>
+          )}
+          {human && (
+            <p className="self-center rounded-full bg-secondary px-3 py-1 text-xs text-premium/70">Te está respondiendo una persona del equipo de Eterna</p>
           )}
           {busy && (
             <div className="flex gap-1.5 self-start rounded-2xl rounded-bl-md border border-premium bg-white px-4 py-4 shadow-premium" aria-label="Escribiendo">
