@@ -29,7 +29,7 @@ export type MessageItem = {
   created_by: string
 }
 
-export const REMINDER_TYPES = ["proxima", "recordatorio", "saldo", "consulta", "manual"] as const
+export const REMINDER_TYPES = ["despues", "sena", "recordatorio", "saldo", "consulta", "manual"] as const
 
 const first = (name: string) => name.trim().split(/\s+/)[0] || ""
 const hhmm = (d: Date | string) => new Intl.DateTimeFormat("es-AR", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(d))
@@ -47,6 +47,22 @@ function baseVars(settings: Settings, name: string): Record<string, string> {
   return { nombre: first(name), link: settings.business.bookingUrl, direccion: settings.business.address, centro: settings.business.name }
 }
 
+export function afterSessionMessage(settings: Settings, name: string, service: string): string {
+  return renderTemplate(settings.followup.afterSessionTemplate, { ...baseVars(settings, name), tratamiento: service })
+}
+export function depositMessage(settings: Settings, name: string, service: string, startsAt: Date | string, deposit: number): string {
+  const t = settings.transfer
+  const pay = t.alias ? `Podés transferir al alias ${t.alias}${t.holder ? ` (a nombre de ${t.holder})` : ""}.` : "Coordinamos el medio de pago por este chat."
+  const day = todayAR(new Date(startsAt))
+  return renderTemplate(settings.followup.depositTemplate, {
+    ...baseVars(settings, name),
+    tratamiento: service,
+    fecha: formatDay(day).toLowerCase(),
+    hora: hhmm(startsAt),
+    sena: formatARS(deposit),
+    datos_pago: pay,
+  })
+}
 export function nextSessionMessage(settings: Settings, name: string, service: string): string {
   return renderTemplate(settings.followup.nextSessionTemplate, { ...baseVars(settings, name), tratamiento: service })
 }
@@ -73,11 +89,18 @@ export async function generateMessageReminders(): Promise<number> {
   let created = 0
 
   // 1) limpiar los que ya no corresponden
-  // (si ya tiene turno, el aviso se quita; si ese turno se cancela, el aviso vuelve a crearse)
+  // los avisos viejos de «próxima sesión» automáticos se reemplazan por los tres mensajes nuevos
+  await pool.query("delete from tasks where kind = 'mensaje' and not done and auto_key like 'proxima:%'")
+  // (si ya tiene turno, el mensaje de «después de la sesión» se quita; si ese turno se cancela, vuelve a crearse)
   await pool.query(
     `delete from tasks t
-     where t.kind = 'mensaje' and not t.done and t.auto_key like 'proxima:%'
+     where t.kind = 'mensaje' and not t.done and t.auto_key like 'despues:%'
        and exists (select 1 from bookings x where x.patient_id = t.patient_id and x.starts_at > now() and x.status in ('reserved','pending_payment','pending_review','confirmed','conflict'))`,
+  )
+  await pool.query(
+    `delete from tasks t where t.kind = 'mensaje' and not t.done and t.auto_key like 'pedirsena:%'
+       and (not exists (select 1 from bookings b where b.id = t.booking_id and b.status in ('reserved','confirmed') and b.starts_at > now())
+            or coalesce((select sum(amount) from payments p where p.booking_id = t.booking_id), 0) >= coalesce((select deposit from bookings b where b.id = t.booking_id), 0))`,
   )
   await pool.query(
     `delete from tasks t where t.kind = 'mensaje' and not t.done and t.auto_key like 'recordatorio:%'
@@ -85,20 +108,41 @@ export async function generateMessageReminders(): Promise<number> {
                        and (b.starts_at at time zone '${AR}')::date - 1 = t.due_on)`,
   )
 
-  // 2) próxima sesión: pacientes con una sesión realizada y sin turno posterior
-  const next = await pool.query<{ id: string; patient_id: number; starts_at: Date; service_name: string; name: string }>(
+  // 2) DESPUÉS DE LA SESIÓN: cómo le fue y si quiere agendar la del mes que viene (el mismo día en que se marca como realizada)
+  const after = await pool.query<{ id: string; patient_id: number; starts_at: Date; service_name: string; name: string }>(
     `select distinct on (b.patient_id) b.id, b.patient_id, b.starts_at, b.service_name, p.name
      from bookings b join patients p on p.id = b.patient_id
-     where b.status = 'done' and b.starts_at > now() - interval '60 days' and p.status not in ('Archivada','Finalizó','Dejó') and p.phone <> ''
+     where b.status = 'done' and b.starts_at > now() - interval '5 days' and p.status not in ('Archivada','Finalizó','Dejó') and p.phone <> ''
        and not exists (select 1 from bookings x where x.patient_id = b.patient_id and x.starts_at > now() and x.status in ('reserved','pending_payment','pending_review','confirmed','conflict'))
      order by b.patient_id, b.starts_at desc`,
   )
-  for (const b of next.rows) {
+  for (const b of after.rows) {
     const day = todayAR(new Date(b.starts_at))
     const r = await pool.query(
       `insert into tasks (title, description, kind, patient_id, booking_id, due_on, message, auto_key, created_by)
-       values ('Agendar la próxima sesión', $1, 'mensaje', $2, $3, $4, $5, $6, 'sistema') on conflict (auto_key) do nothing`,
-      [`Última sesión: ${b.service_name} el ${formatDay(day).toLowerCase()}`, b.patient_id, b.id, nextReminderDay(settings, day), nextSessionMessage(settings, b.name, b.service_name), `proxima:${b.patient_id}:${day.replace(/-/g, "")}`],
+       values ('Después de la sesión', $1, 'mensaje', $2, $3, $4, $5, $6, 'sistema') on conflict (auto_key) do nothing`,
+      [`Sesión de ${b.service_name} del ${formatDay(day).toLowerCase()}: preguntarle cómo le fue y si quiere agendar la próxima`, b.patient_id, b.id, day, afterSessionMessage(settings, b.name, b.service_name), `despues:${b.id}`],
+    )
+    created += r.rowCount ?? 0
+  }
+
+  // 2 bis) SEÑA: a los N días de la sesión (10 por defecto), si todavía no está pagada y el turno se sacó con anticipación
+  const lead = settings.followup.remindDaysBefore
+  const dep = await pool.query<{ id: string; patient_id: number | null; starts_at: Date; service_name: string; name: string; deposit: number }>(
+    `select b.id, b.patient_id, b.starts_at, b.service_name, b.name, b.deposit from bookings b
+     where b.status in ('reserved','confirmed') and b.deposit > 0 and b.phone <> ''
+       and b.starts_at > now() and (b.starts_at at time zone '${AR}')::date - $1::int <= (now() at time zone '${AR}')::date
+       and b.created_at < b.starts_at - make_interval(days => greatest($1::int - 2, 1))
+       and coalesce((select sum(amount) from payments p where p.booking_id = b.id), 0) < b.deposit`,
+    [lead],
+  )
+  for (const b of dep.rows) {
+    const day = todayAR(new Date(b.starts_at))
+    const due = addDays(day, -lead) > todayAR() ? addDays(day, -lead) : todayAR()
+    const r = await pool.query(
+      `insert into tasks (title, description, kind, patient_id, booking_id, due_on, message, auto_key, created_by)
+       values ('Pedir la seña', $1, 'mensaje', $2, $3, $4, $5, $6, 'sistema') on conflict (auto_key) do nothing`,
+      [`Turno ${formatDay(day).toLowerCase()} ${hhmm(b.starts_at)} hs · ${b.service_name}: seña de ${formatARS(b.deposit)}`, b.patient_id, b.id, due, depositMessage(settings, b.name, b.service_name, b.starts_at, b.deposit), `pedirsena:${b.id}`],
     )
     created += r.rowCount ?? 0
   }

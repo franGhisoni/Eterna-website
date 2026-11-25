@@ -1072,8 +1072,8 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
       <div className={`${panel} grid gap-4 sm:grid-cols-3`}>
         <p className="font-medium text-ink sm:col-span-3">Reglas de seguimiento (crean tareas, no envían mensajes)</p>
         <label className="text-xs text-ink-3">Pedir seña a turnos dentro de (horas)<input type="number" min={1} value={followup.depositHours} onChange={(e) => setFollowup({ ...followup, depositHours: num(e.target.value) })} className={`${field} mt-1`} /></label>
-        <label className="text-xs text-ink-3">Cada cuántos días se espera la próxima sesión<input type="number" min={7} value={followup.nextSessionDays} onChange={(e) => setFollowup({ ...followup, nextSessionDays: num(e.target.value) })} className={`${field} mt-1`} /></label>
-        <label className="text-xs text-ink-3">Avisarme para agendarla con (días de anticipación)<input type="number" min={0} value={followup.remindDaysBefore} onChange={(e) => setFollowup({ ...followup, remindDaysBefore: num(e.target.value) })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-ink-3">Pedir la seña con (días de anticipación a la sesión)<input type="number" min={0} value={followup.remindDaysBefore} onChange={(e) => setFollowup({ ...followup, remindDaysBefore: num(e.target.value) })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-ink-3">«Recordarme escribirle»: cuántos días después de la sesión (menos los de anticipación)<input type="number" min={7} value={followup.nextSessionDays} onChange={(e) => setFollowup({ ...followup, nextSessionDays: num(e.target.value) })} className={`${field} mt-1`} /></label>
         <label className="text-xs text-ink-3">Paciente inactivo tras (días)<input type="number" min={7} value={followup.inactiveAfterDays} onChange={(e) => setFollowup({ ...followup, inactiveAfterDays: num(e.target.value) })} className={`${field} mt-1`} /></label>
       </div>
 
@@ -1088,10 +1088,12 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
       <div className={`${panel} grid gap-4 sm:grid-cols-2`}>
         <div className="sm:col-span-2">
           <p className="font-medium text-ink">Textos de los mensajes</p>
-          <p className="text-xs text-ink-3">Es lo que aparece ya redactado en «Mensajes». Podés usar {"{nombre}"}, {"{tratamiento}"}, {"{fecha}"}, {"{hora}"}, {"{saldo}"}, {"{interes}"}, {"{link}"}, {"{direccion}"} y {"{centro}"}; cada mensaje se puede retocar antes de enviarlo.</p>
+          <p className="text-xs text-ink-3">Es lo que aparece ya redactado en «Mensajes». Podés usar {"{nombre}"}, {"{tratamiento}"}, {"{fecha}"}, {"{hora}"}, {"{saldo}"}, {"{interes}"}, {"{sena}"}, {"{link}"}, {"{direccion}"} y {"{centro}"}; cada mensaje se puede retocar antes de enviarlo.</p>
         </div>
-        <label className="text-xs text-ink-3 sm:col-span-2">Para agendar la próxima sesión<textarea rows={3} value={followup.nextSessionTemplate} onChange={(e) => setFollowup({ ...followup, nextSessionTemplate: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
-        <label className="text-xs text-ink-3">Recordatorio de turno (un día antes)<textarea rows={3} value={followup.appointmentTemplate} onChange={(e) => setFollowup({ ...followup, appointmentTemplate: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
+        <label className="text-xs text-ink-3 sm:col-span-2">1) Después de la sesión (cómo le fue y agendar la próxima)<textarea rows={3} value={followup.afterSessionTemplate} onChange={(e) => setFollowup({ ...followup, afterSessionTemplate: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
+        <label className="text-xs text-ink-3 sm:col-span-2">2) Pedir la seña (10 días antes; usa {"{sena}"} y {"{datos_pago}"})<textarea rows={3} value={followup.depositTemplate} onChange={(e) => setFollowup({ ...followup, depositTemplate: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
+        <label className="text-xs text-ink-3 sm:col-span-2">3) Recordatorio de turno (un día antes)<textarea rows={3} value={followup.appointmentTemplate} onChange={(e) => setFollowup({ ...followup, appointmentTemplate: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
+        <label className="text-xs text-ink-3 sm:col-span-2">«Recordarme escribirle» (agendar la próxima más adelante)<textarea rows={3} value={followup.nextSessionTemplate} onChange={(e) => setFollowup({ ...followup, nextSessionTemplate: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
         <label className="text-xs text-ink-3">Saldo pendiente<textarea rows={3} value={followup.balanceTemplate} onChange={(e) => setFollowup({ ...followup, balanceTemplate: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
         <label className="text-xs text-ink-3 sm:col-span-2">Seguimiento de una consulta que no reservó<textarea rows={3} value={followup.inquiryTemplate} onChange={(e) => setFollowup({ ...followup, inquiryTemplate: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
       </div>

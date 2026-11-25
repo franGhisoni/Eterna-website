@@ -20,8 +20,14 @@ export type FollowupSettings = {
   nextSessionDays: number
   /** con cuántos días de anticipación se avisa para agendarla */
   remindDaysBefore: number
-  nextSessionTemplate: string
+  /** 1) apenas termina la sesión: cómo le fue y si quiere agendar la del mes que viene */
+  afterSessionTemplate: string
+  /** 2) 10 días antes de la sesión: pedir la seña */
+  depositTemplate: string
+  /** 3) un día antes: recordar que mañana tiene su sesión */
   appointmentTemplate: string
+  /** «Recordarme escribirle»: aviso manual para agendar la próxima sesión más adelante */
+  nextSessionTemplate: string
   balanceTemplate: string
   inquiryTemplate: string
 }
@@ -71,6 +77,10 @@ export const DEFAULT_SETTINGS: Settings = {
     inactiveAfterDays: 90,
     nextSessionDays: 30,
     remindDaysBefore: 10,
+    afterSessionTemplate:
+      "Hola {nombre}! ¿Cómo estás? ¿Cómo te fue hoy en tu sesión de {tratamiento}? Contanos cómo te sentiste. Si querés, ya dejamos agendada la del mes que viene: ¿qué día y horario te queda cómodo? También podés reservar acá: {link}",
+    depositTemplate:
+      "Hola {nombre}! Te escribimos de {centro}: tu sesión de {tratamiento} es el {fecha} a las {hora} hs. Para dejarla confirmada necesitamos la seña de {sena}. {datos_pago} Cuando la abones, mandanos el comprobante por acá. ¡Gracias!",
     nextSessionTemplate:
       "Hola {nombre}! ¿Cómo estás? Ya se acerca el mes de tu última sesión de {tratamiento} en {centro}. ¿Te agendamos la próxima? Contame qué día y horario te queda cómodo. Si preferís, también podés reservar acá: {link}",
     appointmentTemplate: "Hola {nombre}! Te recordamos tu turno de {tratamiento} el {fecha} a las {hora} hs en {centro} ({direccion}). ¡Te esperamos!",
@@ -153,6 +163,8 @@ export function sanitizeSettings(input: Partial<Record<keyof Settings, Record<st
       inactiveAfterDays: clampInt(followup.inactiveAfterDays, 7, 1000, current.followup.inactiveAfterDays),
       nextSessionDays: clampInt(followup.nextSessionDays, 7, 365, current.followup.nextSessionDays),
       remindDaysBefore: clampInt(followup.remindDaysBefore, 0, 120, current.followup.remindDaysBefore),
+      afterSessionTemplate: str(followup.afterSessionTemplate, 1500, current.followup.afterSessionTemplate) || current.followup.afterSessionTemplate,
+      depositTemplate: str(followup.depositTemplate, 1500, current.followup.depositTemplate) || current.followup.depositTemplate,
       nextSessionTemplate: str(followup.nextSessionTemplate, 1500, current.followup.nextSessionTemplate) || current.followup.nextSessionTemplate,
       appointmentTemplate: str(followup.appointmentTemplate, 1500, current.followup.appointmentTemplate) || current.followup.appointmentTemplate,
       balanceTemplate: str(followup.balanceTemplate, 1500, current.followup.balanceTemplate) || current.followup.balanceTemplate,

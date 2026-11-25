@@ -30,6 +30,13 @@ function waLink(phone: string, text: string) {
   return `https://wa.me/${full}?text=${encodeURIComponent(text)}`
 }
 
+type Kind = "todos" | "despues" | "sena" | "recordatorio" | "otros"
+const kindOf = (m: Pick<Item, "auto_key">): Exclude<Kind, "todos"> => {
+  const k = m.auto_key?.split(":")[0]
+  return k === "despues" ? "despues" : k === "pedirsena" ? "sena" : k === "recordatorio" ? "recordatorio" : "otros"
+}
+const KIND_LABEL: Record<Exclude<Kind, "todos">, string> = { despues: "Después de la sesión", sena: "Pedir la seña", recordatorio: "Recordatorio de turno", otros: "Otros" }
+
 const TOPICS = ["Agendar la próxima sesión", "Recordatorio de turno", "Recordar saldo pendiente", "Seguimiento de consulta", "Confirmar asistencia", "Resultados / cómo te sentiste"]
 
 function dueLabel(due: string | null, today: string): { text: string; tone: "danger" | "warning" | "neutral" | "info" } {
@@ -200,6 +207,7 @@ export function MessagesView({ flash, onPatient }: { flash: Flash; onPatient: (i
   const [state, setState] = useState<"pendientes" | "enviados">("pendientes")
   const [items, setItems] = useState<Item[] | null>(null)
   const [creating, setCreating] = useState(false)
+  const [kind, setKind] = useState<Kind>("todos")
   const today = todayAR()
 
   const load = useCallback(() => {
@@ -212,16 +220,21 @@ export function MessagesView({ flash, onPatient }: { flash: Flash; onPatient: (i
     load()
   }, [load])
 
+  const counts = useMemo(() => {
+    const c: Record<Kind, number> = { todos: 0, despues: 0, sena: 0, recordatorio: 0, otros: 0 }
+    for (const m of items ?? []) (c.todos++, c[kindOf(m)]++)
+    return c
+  }, [items])
   const { dueNow, later } = useMemo(() => {
-    const list = items ?? []
+    const list = (items ?? []).filter((m) => kind === "todos" || kindOf(m) === kind)
     return { dueNow: list.filter((m) => !m.due_on || m.due_on <= today), later: list.filter((m) => m.due_on && m.due_on > today) }
-  }, [items, today])
+  }, [items, today, kind])
 
   return (
     <section className="space-y-5">
       <PageHeader
         title="Mensajes para enviar"
-        description="A quién escribirle, cuándo y sobre qué. Cada mensaje viene redactado: lo abrís en WhatsApp, lo revisás y lo enviás vos. El sistema nunca manda nada por su cuenta."
+        description="Tres mensajes automáticos: al terminar la sesión (cómo le fue y agendar la próxima), 10 días antes (la seña) y un día antes (recordatorio). Cada uno viene redactado: lo abrís en WhatsApp, lo revisás y lo enviás vos. El sistema nunca manda nada por su cuenta."
         actions={<button onClick={() => setCreating(true)} className={btnPrimary}><Plus /> Nuevo recordatorio</button>}
       />
       <Segmented
@@ -231,6 +244,16 @@ export function MessagesView({ flash, onPatient }: { flash: Flash; onPatient: (i
         options={[["pendientes", `Pendientes${items && state === "pendientes" ? ` (${items.length})` : ""}`], ["enviados", "Enviados"]]}
       />
 
+      {state === "pendientes" && items && items.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tipo de mensaje">
+          {(["todos", "despues", "sena", "recordatorio", "otros"] as Kind[]).filter((k) => k === "todos" || counts[k] > 0).map((k) => (
+            <button key={k} type="button" aria-pressed={kind === k} onClick={() => setKind(k)} className={`h-8 rounded-full border px-3 text-xs font-medium transition-colors ${kind === k ? "border-primary bg-primary text-white" : "border-line bg-white text-ink-2 hover:bg-surface"}`}>
+              {k === "todos" ? "Todos" : KIND_LABEL[k]} · {counts[k]}
+            </button>
+          ))}
+        </div>
+      )}
+
       {items === null ? (
         <Loading rows={3} />
       ) : items.length === 0 ? (
@@ -238,7 +261,7 @@ export function MessagesView({ flash, onPatient }: { flash: Flash; onPatient: (i
           <Empty
             icon={<Send />}
             title={state === "pendientes" ? "No hay mensajes pendientes" : "Todavía no marcaste mensajes como enviados"}
-            text={state === "pendientes" ? "Cuando alguien termine una sesión, aparece acá el aviso para agendar la próxima, 10 días antes de cumplirse el mes. También podés crear tus propios recordatorios." : undefined}
+            text={state === "pendientes" ? "Cuando alguien termine una sesión, aparece el mensaje para saber cómo le fue y agendar la próxima; 10 días antes de cada turno, el pedido de seña; y el día anterior, el recordatorio. También podés crear tus propios recordatorios." : undefined}
             action={state === "pendientes" ? <button onClick={() => setCreating(true)} className={btnGhost}>Crear un recordatorio</button> : undefined}
           />
         </Card>
