@@ -449,6 +449,7 @@ export type PatientSummary = {
   source: string
   birth_date: string | null
   notes: string
+  marketing_consent: boolean
   created_at: Date
   /** datos cargados a mano antes del sistema integrado: se suman, no se pisan */
   legacy_sessions: number
@@ -463,7 +464,7 @@ export type PatientSummary = {
 }
 
 const PATIENT_SELECT = `
-  select p.id, p.name, p.phone, p.email, p.gender, p.treatments, p.status, p.source, p.birth_date, p.notes, p.created_at,
+  select p.id, p.name, p.phone, p.email, p.gender, p.treatments, p.status, p.source, p.birth_date, p.notes, p.marketing_consent, p.created_at,
     p.sessions_done as legacy_sessions, p.balance as legacy_balance,
     p.sessions_done + (select count(*) from bookings b where b.patient_id = p.id and b.status = 'done')::int as sessions_done,
     (select count(*) from bookings b where b.patient_id = p.id and b.starts_at > now() and b.status in ('reserved','pending_payment','pending_review','confirmed','conflict'))::int as upcoming,

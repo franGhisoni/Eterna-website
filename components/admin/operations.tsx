@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
 import { AlertTriangle, CalendarPlus, ChevronLeft, ChevronRight, Download, History, Plus, Save, Search, Trash2, UserPlus, Wallet, X } from "lucide-react"
 import { addDays, formatARS, formatDay, todayAR, weekdayOf } from "@/lib/time"
+import { PeriodPanel } from "./management"
 import { api, ApiError, btnGhost, btnIcon, btnPrimary, btnSmall, chip, field, fieldInline, fromLocalInput, hhmm, lbl, panel, shortDate, shortDateTime, toLocalInput, type Flash } from "./ui"
 
 /* ───────────── Tipos compartidos ───────────── */
@@ -53,6 +54,7 @@ export type PatientSummary = {
   birth_date: string | null
   notes: string
   created_at: string
+  marketing_consent: boolean
   legacy_sessions: number
   legacy_balance: number
   sessions_done: number
@@ -101,11 +103,18 @@ export function useCatalog(flash: Flash) {
       api<{ services: Service[] }>("/api/admin/services"),
       api<{ promos: Promo[] }>("/api/admin/promos"),
       api<{ settings: { payments: { methods: string[]; depositPercent: number }; team: { professionals: string[] } } }>("/api/admin/settings"),
+      api<{ items: Array<{ name: string; active: boolean }> }>("/api/admin/data/profesionales").catch(() => ({ items: [] })),
     ])
-      .then(([s, p, c]) =>
-        setCatalog({ services: s.services, promos: p.promos, methods: c.settings.payments.methods, professionals: c.settings.team.professionals, depositPercent: c.settings.payments.depositPercent }),
+      .then(([s, p, c, pros]) =>
+        setCatalog({
+          services: s.services,
+          promos: p.promos,
+          methods: c.settings.payments.methods,
+          professionals: Array.from(new Set([...pros.items.filter((x) => x.active).map((x) => x.name), ...c.settings.team.professionals])),
+          depositPercent: c.settings.payments.depositPercent,
+        }),
       )
-      .catch(() => flash("No se pudo cargar el catálogo", true))
+      .catch(() => setCatalog({ services: [], promos: [], methods: [], professionals: [], depositPercent: 0 }))
   }, [flash])
   return catalog
 }
@@ -410,7 +419,14 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
           setBusy(false)
           return save(true)
         }
-      } else flash(e instanceof ApiError && e.message === "paciente_invalido" ? "Falta el paciente" : "Revisá los datos del turno", true)
+      } else
+        flash(
+          e instanceof ApiError && e.message === "paciente_invalido" ? "Falta el paciente"
+          : e instanceof ApiError && e.message === "profesional_no_habilitada" ? String(e.data.detail)
+          : e instanceof ApiError && e.message === "sin_permiso" ? "Tu usuario no tiene permiso para esto"
+          : "Revisá los datos del turno",
+          true,
+        )
     }
     setBusy(false)
   }
@@ -751,6 +767,9 @@ export function DashboardView({ flash, onPatient, go }: { flash: Flash; onPatien
           <button onClick={() => actions.create()} className={btnPrimary}><CalendarPlus className="h-4 w-4" /> Nuevo turno</button>
           <button onClick={() => go("pacientes")} className={btnGhost}><UserPlus className="h-4 w-4" /> Pacientes</button>
           <button onClick={() => go("promos")} className={btnGhost}><Plus className="h-4 w-4" /> Promoción</button>
+          <button onClick={() => go("agenda")} className={btnGhost}><CalendarPlus className="h-4 w-4" /> Jornada</button>
+          <button onClick={() => go("caja")} className={btnGhost}><Wallet className="h-4 w-4" /> Pagos</button>
+          <button onClick={() => go("conversaciones")} className={btnGhost}>Mensajes</button>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -760,6 +779,8 @@ export function DashboardView({ flash, onPatient, go }: { flash: Flash; onPatien
         {tile("Cobrado este mes", formatARS(d.collectedMonth))}
         {tile("Por cobrar (turnos próximos)", formatARS(d.pendingBalance))}
       </div>
+
+      <PeriodPanel flash={flash} onPatient={onPatient} go={go} />
 
       {(d.withoutDeposit.length > 0 || d.toReview.length > 0) && (
         <div className={`${panel} border-amber-200`}>
@@ -892,11 +913,12 @@ export function PatientsView({ flash, openId, onOpened }: { flash: Flash; openId
   )
 }
 
-type Profile = { patient: PatientSummary; bookings: AgendaItem[]; payments: Payment[] }
+type Treatment = { category: string; status: string; notes: string; sessions_done: number; first_session: string | null; last_session: string | null; next_session: string | null; zones: string; professionals: string }
+type Profile = { patient: PatientSummary; bookings: AgendaItem[]; payments: Payment[]; treatments: Treatment[] }
 
 function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; flash: Flash; onClose: () => void; onCreated: (id: number) => void }) {
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [form, setForm] = useState({ name: "", phone: "", email: "", gender: "", treatments: "", status: "Nueva", source: "", birth_date: "", notes: "" })
+  const [form, setForm] = useState({ name: "", phone: "", email: "", gender: "", treatments: "", status: "Nueva", source: "", birth_date: "", notes: "", marketing_consent: false })
   const [tab, setTab] = useState<"sesiones" | "pagos" | "datos">(id ? "sesiones" : "datos")
 
   const load = useCallback(() => {
@@ -905,7 +927,7 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
       .then((d) => {
         setProfile(d)
         const p = d.patient
-        setForm({ name: p.name, phone: p.phone, email: p.email, gender: p.gender, treatments: p.treatments, status: p.status, source: p.source, birth_date: p.birth_date ?? "", notes: p.notes })
+        setForm({ name: p.name, phone: p.phone, email: p.email, gender: p.gender, treatments: p.treatments, status: p.status, source: p.source, birth_date: p.birth_date ?? "", notes: p.notes, marketing_consent: p.marketing_consent })
       })
       .catch(() => flash("No se pudo cargar el paciente", true))
   }, [id, flash])
@@ -1003,6 +1025,32 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
 
       {tab === "sesiones" && profile && (
         <div className="mt-3 space-y-4">
+          {profile.treatments.length > 0 && (
+            <div>
+              <p className="text-sm font-medium text-premium">Tratamientos</p>
+              <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                {profile.treatments.map((t) => (
+                  <div key={t.category} className="rounded-xl border border-premium p-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium text-premium">{t.category}</p>
+                      <select
+                        value={t.status}
+                        onChange={(e) => api("/api/admin/patients", { method: "PUT", body: JSON.stringify({ id, treatment: { category: t.category, status: e.target.value, notes: t.notes } }) }).then(load).catch(() => flash("No se pudo actualizar", true))}
+                        className="h-8 rounded-md border border-premium bg-white px-2 text-xs"
+                        aria-label="Estado del tratamiento"
+                      >
+                        {["Activo", "Pausado", "Finalizado", "Abandonado"].map((x) => <option key={x}>{x}</option>)}
+                      </select>
+                    </div>
+                    <p className="mt-1 text-premium/70">{t.sessions_done} sesiones · primera {shortDate(t.first_session)} · última {shortDate(t.last_session)}</p>
+                    <p className="text-premium/70">Próxima: {t.next_session ? shortDateTime(t.next_session) : "sin fecha"}</p>
+                    {t.zones && <p className="text-xs text-premium/55">Zonas: {t.zones}</p>}
+                    {t.professionals && <p className="text-xs text-premium/55">Profesionales: {t.professionals}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {upcoming.length > 0 && (
             <div>
               <p className="text-sm font-medium text-premium">Próximos</p>
@@ -1064,6 +1112,9 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
             <label className={lbl}>Estado<select value={form.status} onChange={(e) => set({ status: e.target.value })} className={`${field} mt-1`}>{PATIENT_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
             <label className={`${lbl} col-span-2`}>Tratamientos / zonas habituales<input value={form.treatments} onChange={(e) => set({ treatments: e.target.value })} className={`${field} mt-1`} /></label>
             <label className={`${lbl} col-span-2`}>Observaciones administrativas<textarea rows={4} value={form.notes} onChange={(e) => set({ notes: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
+            <label className="col-span-2 flex items-center gap-2 text-sm text-premium/70">
+              <input type="checkbox" checked={form.marketing_consent} onChange={(e) => set({ marketing_consent: e.target.checked })} className="accent-[#882626]" /> Acepta recibir comunicaciones comerciales (promociones, novedades)
+            </label>
           </div>
           <p className="text-xs text-premium/55">Las sesiones, los pagos, el saldo y el próximo turno se calculan solos a partir de la agenda y los pagos registrados.</p>
           <div className="flex gap-2">

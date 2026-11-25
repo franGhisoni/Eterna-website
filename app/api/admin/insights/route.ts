@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { badRequest, can, deny } from "@/lib/server/http"
 import { alerts, auditLog, backup, generateFollowUps, periodMetrics, reports, toCsv } from "@/lib/server/insights"
+import { previewInstructions } from "@/lib/server/chat"
+import { getSettings } from "@/lib/server/settings"
 import { addDays, DAY_RE, todayAR } from "@/lib/time"
 
 export const dynamic = "force-dynamic"
@@ -55,6 +57,13 @@ export async function GET(req: NextRequest) {
     return new NextResponse(JSON.stringify(await backup(), null, 1), {
       headers: { "Content-Type": "application/json; charset=utf-8", "Content-Disposition": `attachment; filename="eterna-respaldo-${todayAR()}.json"` },
     })
+  }
+
+  if (view === "asistente") {
+    // vista previa de lo que sabe el asistente ahora mismo (precios, promos, FAQ, equipos, políticas)
+    const session = await can("settings")
+    if (!session) return deny()
+    return NextResponse.json({ instructions: await previewInstructions(await getSettings()) })
   }
 
   return badRequest()

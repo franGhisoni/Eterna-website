@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { db } from "@/lib/server/db"
 import { badRequest, can, deny } from "@/lib/server/http"
-import { createPromo, deletePromo, listPromos, parsePromo, updatePromo } from "@/lib/server/promos"
+import { createPromo, deletePromo, listPromos, parsePromo, promoBlocker, updatePromo } from "@/lib/server/promos"
+import { DAY_RE, todayAR } from "@/lib/time"
 
 export const dynamic = "force-dynamic"
 
@@ -17,6 +18,16 @@ export async function GET(req: NextRequest) {
       [usedBy],
     )
     return NextResponse.json({ uses: rows })
+  }
+  const check = Number(req.nextUrl.searchParams.get("verificar"))
+  if (check) {
+    // ¿aplica esta promo a esta persona, este día y este tratamiento? (la misma regla que usa el chat)
+    const promo = (await listPromos()).find((p) => p.id === check)
+    if (!promo) return badRequest("no_encontrado")
+    const sp = req.nextUrl.searchParams
+    const day = sp.get("dia") ?? ""
+    const why = await promoBlocker(promo, { phone: sp.get("telefono") ?? "", day: DAY_RE.test(day) ? day : todayAR(), category: sp.get("categoria") ?? "" })
+    return NextResponse.json({ applies: !why, reason: why })
   }
   return NextResponse.json({ promos: await listPromos() })
 }

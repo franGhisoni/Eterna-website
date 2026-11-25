@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { BadgePercent, Bot, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, ExternalLink, Landmark, LayoutDashboard, LogOut, Plus, Save, Settings2, Sparkles, Trash2, Users, Wallet } from "lucide-react"
+import { BadgePercent, Bot, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, ExternalLink, History, Landmark, LayoutDashboard, LineChart, ListTodo, LogOut, MessagesSquare, ShieldCheck, Stethoscope, Plus, Save, Settings2, Sparkles, Trash2, Users, Wallet } from "lucide-react"
 import { AgendaView, CashView, DashboardView, PatientsView } from "./operations"
+import { AssistantPreview, InboxView, JornadasView, RecordList, ReportsView, SecurityView, TasksView, TeamView } from "./management"
 import type { Settings, ReasoningEffort } from "@/lib/server/settings"
 import { DEFAULT_DIALOGUE } from "@/lib/chat-defaults"
 import { addDays, formatARS, formatDay, TIME_ZONE, todayAR, weekdayOf } from "@/lib/time"
@@ -22,6 +23,13 @@ type Service = {
   kind: string
   gender: string
   detail: string
+  online: boolean
+  visible_web: boolean
+  audience: string
+  equipment: string
+  indications: string
+  contraindications: string
+  promo_price: number | null
 }
 type Booking = {
   id: string
@@ -70,17 +78,27 @@ function useFlash() {
   return [msg, show] as const
 }
 
+type Role = "owner" | "recepcion" | "profesional"
+const ALL: Role[] = ["owner", "recepcion", "profesional"]
+const STAFF: Role[] = ["owner", "recepcion"]
+const OWNER: Role[] = ["owner"]
+
 const TABS = [
-  { id: "inicio", label: "Inicio", icon: LayoutDashboard },
-  { id: "turnos", label: "Agenda", icon: ClipboardList },
-  { id: "pacientes", label: "Pacientes", icon: Users },
-  { id: "caja", label: "Caja", icon: Wallet },
-  { id: "agenda", label: "Jornadas", icon: CalendarDays },
-  { id: "transferencias", label: "Transferencias", icon: Landmark },
-  { id: "servicios", label: "Servicios", icon: Sparkles },
-  { id: "promos", label: "Promociones", icon: BadgePercent },
-  { id: "asistente", label: "Asistente IA", icon: Bot },
-  { id: "config", label: "Configuración", icon: Settings2 },
+  { id: "inicio", label: "Inicio", icon: LayoutDashboard, roles: ALL },
+  { id: "turnos", label: "Agenda", icon: ClipboardList, roles: ALL },
+  { id: "pacientes", label: "Pacientes", icon: Users, roles: ALL },
+  { id: "caja", label: "Caja", icon: Wallet, roles: STAFF },
+  { id: "agenda", label: "Jornadas", icon: CalendarDays, roles: STAFF },
+  { id: "conversaciones", label: "Conversaciones", icon: MessagesSquare, roles: STAFF },
+  { id: "tareas", label: "Tareas", icon: ListTodo, roles: ALL },
+  { id: "transferencias", label: "Transferencias", icon: Landmark, roles: STAFF },
+  { id: "servicios", label: "Servicios", icon: Sparkles, roles: STAFF },
+  { id: "promos", label: "Promociones", icon: BadgePercent, roles: STAFF },
+  { id: "equipo", label: "Equipo", icon: Stethoscope, roles: STAFF },
+  { id: "reportes", label: "Reportes", icon: LineChart, roles: OWNER },
+  { id: "asistente", label: "Asistente IA", icon: Bot, roles: OWNER },
+  { id: "config", label: "Configuración", icon: Settings2, roles: OWNER },
+  { id: "seguridad", label: "Usuarios", icon: ShieldCheck, roles: OWNER },
 ] as const
 type TabId = (typeof TABS)[number]["id"]
 
@@ -96,8 +114,10 @@ export function AdminApp() {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
   const [flash, setFlash] = useFlash()
+  const [session, setSession] = useState<{ username: string; role: Role; professional: string } | null>(null)
 
   useEffect(() => {
+    api<{ session: { username: string; role: Role; professional: string } }>("/api/admin/login").then((d) => setSession(d.session)).catch(() => {})
     api<{ settings: Settings; status: Status }>("/api/admin/settings")
       .then((d) => {
         setSettings(d.settings)
@@ -133,13 +153,14 @@ export function AdminApp() {
             <a href="/chat" target="_blank" className={`${btnGhost} hidden sm:inline-flex`}>
               <ExternalLink className="h-4 w-4" /> Ver chat
             </a>
+            {session && <span className="hidden text-xs text-premium/55 md:inline">{session.username}</span>}
             <button onClick={logout} className={btnGhost} aria-label="Cerrar sesión">
               <LogOut className="h-4 w-4" />
             </button>
           </div>
         </div>
         <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4" aria-label="Secciones">
-          {TABS.map((t) => (
+          {TABS.filter((t) => !session || (t.roles as readonly Role[]).includes(session.role)).map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
@@ -159,11 +180,16 @@ export function AdminApp() {
         {tab === "turnos" && <AgendaView flash={setFlash} onPatient={showPatient} />}
         {tab === "pacientes" && <PatientsView flash={setFlash} openId={openPatient} onOpened={patientOpened} />}
         {tab === "caja" && <CashView flash={setFlash} />}
-        {tab === "agenda" && <AgendaTab flash={setFlash} />}
+        {tab === "agenda" && <JornadasView flash={setFlash} />}
+        {tab === "conversaciones" && <InboxView flash={setFlash} onPatient={showPatient} />}
+        {tab === "tareas" && <TasksView flash={setFlash} onPatient={showPatient} />}
+        {tab === "equipo" && <TeamView flash={setFlash} />}
+        {tab === "reportes" && <ReportsView flash={setFlash} />}
+        {tab === "seguridad" && <SecurityView flash={setFlash} />}
         {tab === "transferencias" && <TransfersTab flash={setFlash} />}
-        {tab === "servicios" && <ServicesTab flash={setFlash} />}
-        {tab === "promos" && <PromosTab flash={setFlash} />}
-        {tab === "asistente" && settings && <AiTab settings={settings} status={status} save={saveSettings} />}
+        {tab === "servicios" && <ServicesTab flash={setFlash} canEdit={session?.role === "owner"} />}
+        {tab === "promos" && <PromosTab flash={setFlash} canEdit={session?.role === "owner"} />}
+        {tab === "asistente" && settings && <AiTab settings={settings} status={status} save={saveSettings} flash={setFlash} />}
         {tab === "config" && settings && <ConfigTab settings={settings} status={status} save={saveSettings} />}
       </main>
 
@@ -190,186 +216,34 @@ const STATE_LABEL: Record<Booking["state"], { label: string; cls: string }> = {
   no_show: { label: "Ausente", cls: "bg-orange-50 text-orange-700 border-orange-200" },
 }
 
-/* ───────────── Agenda ───────────── */
-
-const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-const WEEKDAY_NUM = [1, 2, 3, 4, 5, 6, 0]
-
-function RangesEditor({ ranges, onChange }: { ranges: RangeRow[]; onChange: (r: RangeRow[]) => void }) {
-  return (
-    <div className="space-y-2">
-      {ranges.map((r, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <input type="time" value={r.start} onChange={(e) => onChange(ranges.map((x, j) => (j === i ? { ...x, start: e.target.value } : x)))} className={field} aria-label="Desde" />
-          <span className="text-premium/50">a</span>
-          <input type="time" value={r.end} onChange={(e) => onChange(ranges.map((x, j) => (j === i ? { ...x, end: e.target.value } : x)))} className={field} aria-label="Hasta" />
-          <button onClick={() => onChange(ranges.filter((_, j) => j !== i))} className={btnIcon} aria-label="Quitar franja">
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      ))}
-      <button onClick={() => onChange([...ranges, ranges.length ? { start: "15:00", end: "19:00" } : { start: "10:00", end: "13:00" }])} className={`${btnGhost} h-9 text-xs`}>
-        <Plus className="h-3.5 w-3.5" /> Agregar franja
-      </button>
-    </div>
-  )
-}
-
-function AgendaTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
-  const [month, setMonth] = useState(() => todayAR().slice(0, 7))
-  const [ranges, setRanges] = useState<Array<{ day: string; start_time: string; end_time: string }>>([])
-  const [selected, setSelected] = useState<string | null>(null)
-  const [editing, setEditing] = useState<RangeRow[]>([])
-  const [bulk, setBulk] = useState({ from: todayAR(), to: addDays(todayAR(), 27), weekdays: [1, 2, 3, 4, 5], ranges: [{ start: "10:00", end: "19:00" }] as RangeRow[] })
-
-  const first = `${month}-01`
-  const last = addDays(addDays(first, 32).slice(0, 8) + "01", -1)
-
-  const load = useCallback(() => {
-    api<{ ranges: typeof ranges }>(`/api/admin/agenda?desde=${first}&hasta=${last}`)
-      .then((d) => setRanges(d.ranges))
-      .catch(() => flash("No se pudo cargar la agenda", true))
-  }, [first, last, flash])
-  useEffect(load, [load])
-
-  const byDay = useMemo(() => {
-    const m = new Map<string, RangeRow[]>()
-    for (const r of ranges) m.set(r.day, [...(m.get(r.day) ?? []), { start: r.start_time, end: r.end_time }])
-    return m
-  }, [ranges])
-
-  const select = (day: string) => {
-    setSelected(day)
-    setEditing(byDay.get(day) ?? [])
-  }
-
-  const saveDay = async (rows: RangeRow[]) => {
-    if (!selected) return
-    try {
-      await api("/api/admin/agenda", { method: "PUT", body: JSON.stringify({ day: selected, ranges: rows }) })
-      flash(rows.length ? "Día guardado" : "Día sin atención")
-      setEditing(rows)
-      load()
-    } catch (e) {
-      flash(e instanceof Error && e.message === "horarios_invalidos" ? "Revisá las franjas: el fin debe ser posterior al inicio y no pueden superponerse" : "No se pudo guardar", true)
-    }
-  }
-
-  const applyBulk = async () => {
-    try {
-      const r = await api<{ days: number }>("/api/admin/agenda", { method: "PUT", body: JSON.stringify(bulk) })
-      flash(`Aplicado a ${r.days} días`)
-      load()
-    } catch (e) {
-      flash(e instanceof Error && e.message === "horarios_invalidos" ? "Revisá las franjas horarias" : "No se pudo aplicar", true)
-    }
-  }
-
-  const lead = (weekdayOf(first) + 6) % 7
-  const cells: Array<string | null> = [...Array(lead).fill(null)]
-  for (let d = first; d <= last; d = addDays(d, 1)) cells.push(d)
-  const today = todayAR()
-  const monthLabel = new Intl.DateTimeFormat("es-AR", { timeZone: "UTC", month: "long", year: "numeric" }).format(new Date(`${first}T12:00:00Z`))
-  const shift = (n: number) => {
-    const [y, m] = month.split("-").map(Number)
-    const d = new Date(Date.UTC(y, m - 1 + n, 1))
-    setMonth(d.toISOString().slice(0, 7))
-    setSelected(null)
-  }
-
-  return (
-    <section className="space-y-4">
-      <div>
-        <h1 className="font-serif text-2xl font-bold text-premium">Agenda disponible</h1>
-        <p className="text-sm text-premium/60">Definí qué días y en qué franjas se pueden reservar turnos. El chat ofrece solo estos horarios.</p>
-      </div>
-      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-        <div className={panel}>
-          <div className="flex items-center justify-between">
-            <button onClick={() => shift(-1)} className={btnIcon} aria-label="Mes anterior"><ChevronLeft className="h-4 w-4" /></button>
-            <p className="font-medium text-premium first-letter:uppercase">{monthLabel}</p>
-            <button onClick={() => shift(1)} className={btnIcon} aria-label="Mes siguiente"><ChevronRight className="h-4 w-4" /></button>
-          </div>
-          <div className="mt-4 grid grid-cols-7 gap-1.5 text-center text-xs text-premium/55">
-            {WEEKDAYS.map((w) => <div key={w}>{w}</div>)}
-          </div>
-          <div className="mt-2 grid grid-cols-7 gap-1.5">
-            {cells.map((d, i) =>
-              d === null ? (
-                <div key={`e${i}`} />
-              ) : (
-                <button
-                  key={d}
-                  onClick={() => select(d)}
-                  className={[
-                    "flex min-h-[64px] flex-col items-start rounded-lg border p-1.5 text-left transition-premium sm:min-h-[76px] sm:p-2",
-                    selected === d ? "border-primary ring-2 ring-primary/15" : "border-premium hover:border-primary/40",
-                    byDay.has(d) ? "bg-secondary/60" : "bg-white",
-                    d < today ? "opacity-50" : "",
-                  ].join(" ")}
-                >
-                  <span className={`text-sm font-medium ${d === today ? "text-primary" : "text-premium"}`}>{Number(d.slice(8))}</span>
-                  {(byDay.get(d) ?? []).map((r) => (
-                    <span key={r.start} className="mt-0.5 hidden text-[10px] leading-tight text-primary sm:block">{r.start}–{r.end}</span>
-                  ))}
-                  {byDay.has(d) && <span className="mt-auto h-1.5 w-1.5 rounded-full bg-primary sm:hidden" />}
-                </button>
-              ),
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className={panel}>
-            {selected ? (
-              <>
-                <p className="font-medium text-premium">{formatDay(selected)}</p>
-                <p className="mb-3 text-xs text-premium/55">Franjas en las que se puede reservar.</p>
-                <RangesEditor ranges={editing} onChange={setEditing} />
-                <div className="mt-4 flex gap-2">
-                  <button onClick={() => saveDay(editing)} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
-                  <button onClick={() => saveDay([])} className={btnGhost}>Sin atención</button>
-                </div>
-              </>
-            ) : (
-              <p className="text-sm text-premium/60">Elegí un día del calendario para editar sus horarios.</p>
-            )}
-          </div>
-
-          <div className={panel}>
-            <p className="font-medium text-premium">Carga rápida</p>
-            <p className="mb-3 text-xs text-premium/55">Aplica las mismas franjas a varios días. Reemplaza lo que ya haya en esos días.</p>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="text-xs text-premium/60">Desde<input type="date" value={bulk.from} onChange={(e) => setBulk({ ...bulk, from: e.target.value })} className={`${field} mt-1`} /></label>
-              <label className="text-xs text-premium/60">Hasta<input type="date" value={bulk.to} onChange={(e) => setBulk({ ...bulk, to: e.target.value })} className={`${field} mt-1`} /></label>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {WEEKDAYS.map((w, i) => {
-                const n = WEEKDAY_NUM[i]
-                const on = bulk.weekdays.includes(n)
-                return (
-                  <button key={w} onClick={() => setBulk({ ...bulk, weekdays: on ? bulk.weekdays.filter((x) => x !== n) : [...bulk.weekdays, n] })} className={`h-8 rounded-full border px-3 text-xs transition-premium ${on ? "border-primary bg-primary text-primary-foreground" : "border-premium bg-white text-premium/70"}`}>
-                    {w}
-                  </button>
-                )
-              })}
-            </div>
-            <div className="mt-3"><RangesEditor ranges={bulk.ranges} onChange={(r) => setBulk({ ...bulk, ranges: r })} /></div>
-            <button onClick={applyBulk} disabled={!bulk.weekdays.length} className={`${btnPrimary} mt-4 w-full`}>Aplicar</button>
-          </div>
-        </div>
-      </div>
-    </section>
-  )
-}
-
 /* ───────────── Servicios ───────────── */
 
 const GENDERS = ["", "Femenina", "Masculino", "Unisex"]
 const KINDS = ["", "Zona suelta", "Combo", "Consulta"]
 
-function ServiceRow({ s, update, save, remove }: { s: Service; update: (p: Partial<Service>) => void; save: () => void; remove: () => void }) {
+function PriceHistory({ id }: { id: number }) {
+  const [rows, setRows] = useState<Array<{ created_at: string; actor: string; before_price: string | null; after_price: string | null; before_promo: string | null; after_promo: string | null }> | null>(null)
+  useEffect(() => {
+    api<{ history: NonNullable<typeof rows> }>(`/api/admin/services?historial=${id}`).then((d) => setRows(d.history)).catch(() => setRows([]))
+  }, [id])
+  if (!rows) return <p className="text-xs text-premium/50">Cargando historial…</p>
+  if (!rows.length) return <p className="text-xs text-premium/50">Sin cambios de precio registrados.</p>
+  const money = (v: string | null) => (v === null ? "—" : formatARS(Number(v)))
+  return (
+    <ul className="space-y-0.5 text-xs text-premium/70">
+      {rows.map((r, i) => (
+        <li key={i}>
+          {shortDate(r.created_at)} · {r.actor}: {money(r.before_price)} → {money(r.after_price)}
+          {r.before_promo !== r.after_promo && ` · promo ${money(r.before_promo)} → ${money(r.after_promo)}`}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function ServiceRow({ s, update, save, remove, canEdit }: { s: Service; update: (p: Partial<Service>) => void; save: () => void; remove: () => void; canEdit: boolean }) {
   const [open, setOpen] = useState(s.id < 0)
+  const [history, setHistory] = useState(false)
   const small = "h-9 w-full rounded-md border border-premium bg-white px-2 text-sm text-premium outline-none focus:border-primary/40"
   return (
     <li className="py-2.5">
@@ -385,12 +259,12 @@ function ServiceRow({ s, update, save, remove }: { s: Service; update: (p: Parti
         <label className="flex items-center gap-1 text-xs text-premium/55">$<input type="number" min={0} value={s.price} onChange={(e) => update({ price: Number(e.target.value) })} className={small} aria-label="Precio" /></label>
         <label className="flex items-center gap-1 text-xs text-premium/55" title="Seña">S<input type="number" min={0} value={s.deposit} onChange={(e) => update({ deposit: Number(e.target.value) })} className={small} aria-label="Seña" /></label>
         <div className="col-span-2 flex items-center justify-end gap-1.5 md:col-span-1">
-          <label className="mr-1 flex items-center gap-1.5 text-xs text-premium/60" title="Visible y reservable">
+          <label className="mr-1 flex items-center gap-1.5 text-xs text-premium/60" title="Se realiza actualmente">
             <input type="checkbox" checked={s.active} onChange={(e) => update({ active: e.target.checked })} className="accent-[#882626]" /> Activo
           </label>
           <button onClick={() => setOpen(!open)} className={`${btnGhost} h-9 px-2.5 text-xs`}>{open ? "Menos" : "Más"}</button>
-          <button onClick={remove} className={`${btnIcon} h-9 w-9 text-destructive`} aria-label="Eliminar servicio"><Trash2 className="h-4 w-4" /></button>
-          <button onClick={save} className={`${btnPrimary} h-9 px-3`} aria-label="Guardar servicio"><Save className="h-4 w-4" /></button>
+          {canEdit && <button onClick={remove} className={`${btnIcon} h-9 w-9 text-destructive`} aria-label="Eliminar servicio"><Trash2 className="h-4 w-4" /></button>}
+          {canEdit && <button onClick={save} className={`${btnPrimary} h-9 px-3`} aria-label="Guardar servicio"><Save className="h-4 w-4" /></button>}
         </div>
       </div>
       {open && (
@@ -398,13 +272,24 @@ function ServiceRow({ s, update, save, remove }: { s: Service; update: (p: Parti
           <label className="text-xs text-premium/60">Tratamiento<input value={s.category} onChange={(e) => update({ category: e.target.value })} className={`${small} mt-1`} /></label>
           <label className="text-xs text-premium/60">Zonas incluidas<input value={s.detail} onChange={(e) => update({ detail: e.target.value })} className={`${small} mt-1`} /></label>
           <label className="text-xs text-premium/60">Descripción para el cliente<input value={s.description} onChange={(e) => update({ description: e.target.value })} className={`${small} mt-1`} /></label>
+          <label className="text-xs text-premium/60">Precio promocional (referencia)<input type="number" min={0} value={s.promo_price ?? ""} onChange={(e) => update({ promo_price: e.target.value === "" ? null : Number(e.target.value) })} className={`${small} mt-1`} /></label>
+          <label className="text-xs text-premium/60">Equipo utilizado<input value={s.equipment} onChange={(e) => update({ equipment: e.target.value })} className={`${small} mt-1`} placeholder="Alma Láser Soprano Ice Platinum" /></label>
+          <label className="text-xs text-premium/60">Público<input value={s.audience} onChange={(e) => update({ audience: e.target.value })} className={`${small} mt-1`} placeholder="Mujeres, hombres…" /></label>
+          <label className="text-xs text-premium/60 md:col-span-3">Indicaciones y cuidados<textarea rows={2} value={s.indications} onChange={(e) => update({ indications: e.target.value })} className={`${small} mt-1 h-auto py-1.5`} /></label>
+          <label className="text-xs text-premium/60 md:col-span-3">Contraindicaciones<textarea rows={2} value={s.contraindications} onChange={(e) => update({ contraindications: e.target.value })} className={`${small} mt-1 h-auto py-1.5`} /></label>
+          <div className="flex flex-wrap gap-4 md:col-span-3">
+            <label className="flex items-center gap-1.5 text-xs text-premium/70"><input type="checkbox" checked={s.online} onChange={(e) => update({ online: e.target.checked })} className="accent-[#882626]" /> Reservable online (chat)</label>
+            <label className="flex items-center gap-1.5 text-xs text-premium/70"><input type="checkbox" checked={s.visible_web} onChange={(e) => update({ visible_web: e.target.checked })} className="accent-[#882626]" /> Visible en la web</label>
+            {s.id > 0 && <button onClick={() => setHistory(!history)} className="flex items-center gap-1 text-xs text-primary hover:underline"><History className="h-3.5 w-3.5" /> Historial de precios</button>}
+          </div>
+          {history && <div className="md:col-span-3"><PriceHistory id={s.id} /></div>}
         </div>
       )}
     </li>
   )
 }
 
-function ServicesTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
+function ServicesTab({ flash, canEdit }: { flash: (t: string, e?: boolean) => void; canEdit: boolean }) {
   const [services, setServices] = useState<Service[] | null>(null)
   const [query, setQuery] = useState("")
 
@@ -427,13 +312,13 @@ function ServicesTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
 
   const remove = async (s: Service) => {
     if (s.id < 0) return setServices((v) => v?.filter((x) => x.id !== s.id) ?? v)
-    if (!confirm(`¿Eliminar "${s.name}"? Los turnos ya tomados se conservan.`)) return
+    if (!confirm(`¿Eliminar "${s.name}"? Si tiene turnos, se desactiva en lugar de borrarse.`)) return
     await api(`/api/admin/services?id=${s.id}`, { method: "DELETE" }).catch(() => flash("No se pudo eliminar", true))
     load()
   }
 
   const add = (category: string) =>
-    setServices((v) => [...(v ?? []), { id: -Date.now(), name: "", description: "", duration_min: 30, price: 0, deposit: 0, active: true, sort: (v?.length ?? 0) * 10, category, kind: "", gender: "", detail: "" }])
+    setServices((v) => [...(v ?? []), { id: -Date.now(), name: "", description: "", duration_min: 30, price: 0, deposit: 0, active: true, sort: (v?.length ?? 0) * 10, category, kind: "", gender: "", detail: "", online: true, visible_web: true, audience: "", equipment: "", indications: "", contraindications: "", promo_price: null }])
 
   const q = query.trim().toLowerCase()
   const groups = useMemo(() => {
@@ -451,7 +336,7 @@ function ServicesTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-serif text-2xl font-bold text-premium">Servicios y precios</h1>
-          <p className="text-sm text-premium/60">Lo que se puede reservar desde el chat. Con seña (S) mayor a 0 se cobra por Mercado Pago; con 0 el turno se confirma directo.</p>
+          <p className="max-w-3xl text-sm text-premium/60">Lista única de precios: la usan la agenda, el chat y los reportes. Un servicio inactivo o no reservable online no se ofrece en el chat. Cambiar un precio no modifica los turnos ya tomados y queda en el historial.{!canEdit && " (Solo lectura: los precios los modifica administración principal.)"}</p>
         </div>
         <div className="flex gap-2">
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar…" className={`${fieldInline} w-44`} aria-label="Buscar servicio" />
@@ -469,7 +354,7 @@ function ServicesTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
             </div>
             <ul className="mt-2 divide-y divide-border">
               {list.map((s) => (
-                <ServiceRow key={s.id} s={s} update={(p) => update(s.id, p)} save={() => save(s)} remove={() => remove(s)} />
+                <ServiceRow key={s.id} s={s} canEdit={canEdit} update={(p) => update(s.id, p)} save={() => save(s)} remove={() => remove(s)} />
               ))}
             </ul>
           </div>
@@ -638,9 +523,37 @@ type Promo = {
   starts_on: string | null
   ends_on: string | null
   active: boolean
+  chat_visible: boolean
+  audience: "todos" | "nuevos" | "existentes"
+  max_uses: number
+  per_patient: number
+  stackable: boolean
+  priority: number
+  weekdays: string
+  conditions: string
+  uses?: number
+  patients?: number
+  revenue?: number
 }
 
-function PromosTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
+const PROMO_WEEKDAYS = [[1, "Lun"], [2, "Mar"], [3, "Mié"], [4, "Jue"], [5, "Vie"], [6, "Sáb"], [0, "Dom"]] as const
+
+function PromoUses({ id }: { id: number }) {
+  const [rows, setRows] = useState<Array<{ id: string; name: string; service_name: string; starts_at: string; status: string; final_price: number }> | null>(null)
+  useEffect(() => {
+    api<{ uses: NonNullable<typeof rows> }>(`/api/admin/promos?usos=${id}`).then((d) => setRows(d.uses)).catch(() => setRows([]))
+  }, [id])
+  if (!rows) return <p className="text-xs text-premium/50">Cargando…</p>
+  if (!rows.length) return <p className="text-xs text-premium/50">Todavía nadie la usó.</p>
+  return (
+    <ul className="space-y-0.5 text-xs text-premium/70">
+      {rows.map((r) => <li key={r.id}>{shortDate(r.starts_at)} · {r.name} · {r.service_name} · {formatARS(r.final_price)}{r.status === "cancelled" ? " (cancelado)" : ""}</li>)}
+    </ul>
+  )
+}
+
+function PromosTab({ flash, canEdit }: { flash: (t: string, e?: boolean) => void; canEdit: boolean }) {
+  const [showUses, setShowUses] = useState<number | null>(null)
   const [promos, setPromos] = useState<Promo[] | null>(null)
 
   const load = useCallback(() => {
@@ -649,7 +562,7 @@ function PromosTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
   useEffect(load, [load])
 
   const update = (id: number, patch: Partial<Promo>) => setPromos((v) => v?.map((p) => (p.id === id ? { ...p, ...patch } : p)) ?? v)
-  const add = () => setPromos((v) => [{ id: -Date.now(), title: "", description: "", kind: "percent", percent: 20, sessions: 0, category: "", starts_on: null, ends_on: null, active: true }, ...(v ?? [])])
+  const add = () => setPromos((v) => [{ id: -Date.now(), title: "", description: "", kind: "percent", percent: 20, sessions: 0, category: "", starts_on: null, ends_on: null, active: true, chat_visible: true, audience: "todos", max_uses: 0, per_patient: 0, stackable: false, priority: 0, weekdays: "", conditions: "" }, ...(v ?? [])])
 
   // guardar una promo actualiza solo esa tarjeta: las demás (incluidas las que todavía no se guardaron) quedan intactas
   const save = async (p: Promo) => {
@@ -666,10 +579,13 @@ function PromosTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
 
   const remove = async (p: Promo) => {
     if (p.id < 0) return setPromos((v) => v?.filter((x) => x.id !== p.id) ?? v)
-    if (!confirm(`¿Eliminar "${p.title}"? Los turnos que ya la usaron conservan su precio. Si solo querés dejar de ofrecerla, desmarcá «Activa».`)) return
+    if (!confirm(`¿Eliminar "${p.title}"? Si ya se usó, se pausa en lugar de borrarse (los turnos conservan su precio).`)) return
     try {
-      await api(`/api/admin/promos?id=${p.id}`, { method: "DELETE" })
-      setPromos((v) => v?.filter((x) => x.id !== p.id) ?? v)
+      const r = await api<{ result: string }>(`/api/admin/promos?id=${p.id}`, { method: "DELETE" })
+      if (r.result === "pausada") {
+        setPromos((v) => v?.map((x) => (x.id === p.id ? { ...x, active: false } : x)) ?? v)
+        flash("Ya tenía turnos: quedó pausada")
+      } else setPromos((v) => v?.filter((x) => x.id !== p.id) ?? v)
     } catch {
       flash("No se pudo eliminar", true)
     }
@@ -693,7 +609,7 @@ function PromosTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
           <p className="max-w-3xl text-sm text-premium/60">Podés tener todas las promociones que quieras al mismo tiempo. El chat ofrece las activas y vigentes, y el precio con descuento queda congelado en cada turno: si después cambiás una promo, los turnos ya tomados no se modifican.</p>
           <p className="mt-1 text-sm font-medium text-premium">{live} activas ahora</p>
         </div>
-        <button onClick={add} className={btnPrimary}><Plus className="h-4 w-4" /> Nueva promoción</button>
+        {canEdit && <button onClick={add} className={btnPrimary}><Plus className="h-4 w-4" /> Nueva promoción</button>}
       </div>
       {promos?.length === 0 && <div className={panel}><p className="text-sm text-premium/60">No hay promociones cargadas.</p></div>}
       {promos?.map((p) => (
@@ -716,18 +632,54 @@ function PromosTab({ flash }: { flash: (t: string, e?: boolean) => void }) {
             </label>
             <label className={lbl}>Desde (opcional)<input type="date" value={p.starts_on ?? ""} onChange={(e) => update(p.id, { starts_on: e.target.value || null })} className={`${field} mt-1`} /></label>
             <label className={lbl}>Hasta (opcional)<input type="date" value={p.ends_on ?? ""} onChange={(e) => update(p.id, { ends_on: e.target.value || null })} className={`${field} mt-1`} /></label>
-            <label className={`${lbl} sm:col-span-2 lg:col-span-4`}>Condiciones (el asistente las explica y las confirma antes de aplicarla)
-              <textarea rows={2} value={p.description} onChange={(e) => update(p.id, { description: e.target.value })} placeholder="Ej.: válida si venís con otra persona que también se atiende el mismo día." className={`${field} mt-1 h-auto py-2`} />
+            <label className={`${lbl} sm:col-span-2 lg:col-span-4`}>Descripción (la explica el asistente)
+              <textarea rows={2} value={p.description} onChange={(e) => update(p.id, { description: e.target.value })} placeholder="Ej.: 2x1 en la primera sesión viniendo acompañada." className={`${field} mt-1 h-auto py-2`} />
+            </label>
+            <label className={lbl}>Para
+              <select value={p.audience} onChange={(e) => update(p.id, { audience: e.target.value as Promo["audience"] })} className={`${field} mt-1`}>
+                <option value="todos">Todas las personas</option>
+                <option value="nuevos">Pacientes nuevos (primeros 3 meses)</option>
+                <option value="existentes">Pacientes que ya se atienden</option>
+              </select>
+            </label>
+            <label className={lbl}>Cupo total (0 = sin límite)<input type="number" min={0} value={p.max_uses} onChange={(e) => update(p.id, { max_uses: Number(e.target.value) })} className={`${field} mt-1`} /></label>
+            <label className={lbl}>Usos por paciente (0 = sin límite)<input type="number" min={0} value={p.per_patient} onChange={(e) => update(p.id, { per_patient: Number(e.target.value) })} className={`${field} mt-1`} /></label>
+            <label className={lbl}>Prioridad<input type="number" value={p.priority} onChange={(e) => update(p.id, { priority: Number(e.target.value) })} className={`${field} mt-1`} /></label>
+            <div className="sm:col-span-2">
+              <p className={lbl}>Días en que aplica (ninguno = todos)</p>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {PROMO_WEEKDAYS.map(([n, label]) => {
+                  const days = p.weekdays ? p.weekdays.split(",").map(Number) : []
+                  const on = days.includes(n)
+                  return (
+                    <button key={n} onClick={() => update(p.id, { weekdays: (on ? days.filter((d) => d !== n) : [...days, n]).sort().join(",") })} className={`h-8 rounded-full border px-3 text-xs ${on ? "border-primary bg-primary text-primary-foreground" : "border-premium bg-white text-premium/70"}`}>{label}</button>
+                  )
+                })}
+              </div>
+            </div>
+            <label className={`${lbl} sm:col-span-2`}>Condiciones y restricciones
+              <textarea rows={2} value={p.conditions} onChange={(e) => update(p.id, { conditions: e.target.value })} placeholder="Ej.: no aplica a cuerpo completo." className={`${field} mt-1 h-auto py-2`} />
             </label>
           </div>
+          <div className="mt-3 flex flex-wrap gap-4 text-sm text-premium/70">
+            <label className="flex items-center gap-2"><input type="checkbox" checked={p.chat_visible} onChange={(e) => update(p.id, { chat_visible: e.target.checked })} className="accent-[#882626]" /> El chat la puede comunicar</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={p.stackable} onChange={(e) => update(p.id, { stackable: e.target.checked })} className="accent-[#882626]" /> Acumulable con otras</label>
+          </div>
+          {p.id > 0 && (
+            <p className="mt-2 text-xs text-premium/60">
+              Usada {p.uses ?? 0} veces · {p.patients ?? 0} pacientes · {formatARS(p.revenue ?? 0)} en turnos{" "}
+              <button onClick={() => setShowUses(showUses === p.id ? null : p.id)} className="text-primary hover:underline">{showUses === p.id ? "ocultar" : "ver quiénes"}</button>
+            </p>
+          )}
+          {showUses === p.id && <div className="mt-1"><PromoUses id={p.id} /></div>}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <label className="flex items-center gap-2 text-sm text-premium/70">
               <input type="checkbox" checked={p.active} onChange={(e) => update(p.id, { active: e.target.checked })} className="accent-[#882626]" /> Activa
             </label>
             <span className={`rounded-full border px-2.5 py-0.5 text-xs ${promoState(p).cls}`}>{promoState(p).label}</span>
             <button onClick={() => duplicate(p)} className={`${btnIcon} ml-auto`} aria-label="Duplicar promoción" title="Duplicar"><Copy className="h-4 w-4" /></button>
-            <button onClick={() => remove(p)} className={`${btnIcon} text-destructive`} aria-label="Eliminar promoción"><Trash2 className="h-4 w-4" /></button>
-            <button onClick={() => save(p)} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
+            {canEdit && <button onClick={() => remove(p)} className={`${btnIcon} text-destructive`} aria-label="Eliminar promoción"><Trash2 className="h-4 w-4" /></button>}
+            {canEdit && <button onClick={() => save(p)} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>}
           </div>
         </div>
       ))}
@@ -751,7 +703,7 @@ const EFFORTS: Array<{ value: ReasoningEffort; label: string }> = [
   { value: "high", label: "Alto — más lento y costoso" },
 ]
 
-function AiTab({ settings, status, save }: { settings: Settings; status: Status | null; save: (s: Settings) => Promise<void> }) {
+function AiTab({ settings, status, save, flash }: { settings: Settings; status: Status | null; save: (s: Settings) => Promise<void>; flash: (t: string, e?: boolean) => void }) {
   const [ai, setAi] = useState(settings.ai)
   const dirty = JSON.stringify(ai) !== JSON.stringify(settings.ai)
   return (
@@ -798,6 +750,21 @@ function AiTab({ settings, status, save }: { settings: Settings; status: Status 
         </label>
         <p className="mt-2 text-right text-xs text-premium/50">{ai.knowledge.length.toLocaleString("es-AR")} / 30.000 caracteres</p>
       </div>
+      <AssistantPreview />
+      <RecordList
+        entity="faqs"
+        title="Preguntas frecuentes"
+        intro="Respuestas aprobadas por el equipo. El asistente usa solo las activas que tienen respuesta, y tienen prioridad sobre el texto general. Las correcciones hechas desde Conversaciones aparecen acá en la categoría «Correcciones»."
+        flash={flash}
+        blank={{ question: "", answer: "", category: "General", active: true, sort: 0 }}
+        cols={[
+          { key: "question", label: "Pregunta", wide: true },
+          { key: "answer", label: "Respuesta", type: "longtext", wide: true, placeholder: "Dejala vacía si todavía no está definida: el asistente no la usa." },
+          { key: "category", label: "Categoría" },
+          { key: "sort", label: "Orden", type: "int" },
+          { key: "active", label: "Activa", type: "bool" },
+        ]}
+      />
     </section>
   )
 }
@@ -809,10 +776,11 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
   const [booking, setBooking] = useState(settings.booking)
   const [transfer, setTransfer] = useState(settings.transfer)
   const [payments, setPayments] = useState(settings.payments)
-  const [team, setTeam] = useState(settings.team)
+  const [policies, setPolicies] = useState(settings.policies)
+  const [followup, setFollowup] = useState(settings.followup)
   const dirty =
-    JSON.stringify({ business, booking, transfer, payments, team }) !==
-    JSON.stringify({ business: settings.business, booking: settings.booking, transfer: settings.transfer, payments: settings.payments, team: settings.team })
+    JSON.stringify({ business, booking, transfer, payments, policies, followup }) !==
+    JSON.stringify({ business: settings.business, booking: settings.booking, transfer: settings.transfer, payments: settings.payments, policies: settings.policies, followup: settings.followup })
   const webhookUrl = typeof window !== "undefined" ? `${window.location.origin}/api/mp/webhook` : ""
   const num = (v: string) => Number(v)
 
@@ -823,7 +791,7 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
           <h1 className="font-serif text-2xl font-bold text-premium">Configuración</h1>
           <p className="text-sm text-premium/60">Datos del centro, reglas de reserva e integraciones.</p>
         </div>
-        <button onClick={() => save({ ...settings, business, booking, transfer, payments, team })} disabled={!dirty} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
+        <button onClick={() => save({ ...settings, business, booking, transfer, payments, policies, followup })} disabled={!dirty} className={btnPrimary}><Save className="h-4 w-4" /> Guardar</button>
       </div>
 
       <div className={`${panel} grid gap-4 sm:grid-cols-2`}>
@@ -832,6 +800,25 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
         <label className="text-xs text-premium/60">WhatsApp (con código de país, sin +)<input value={business.whatsapp} onChange={(e) => setBusiness({ ...business, whatsapp: e.target.value })} className={`${field} mt-1`} /></label>
         <label className="text-xs text-premium/60 sm:col-span-2">Dirección (se usa para el mapa)<input value={business.address} onChange={(e) => setBusiness({ ...business, address: e.target.value })} className={`${field} mt-1`} /></label>
         <label className="text-xs text-premium/60 sm:col-span-2">Horario de atención (texto)<input value={business.hours} onChange={(e) => setBusiness({ ...business, hours: e.target.value })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-premium/60">Email<input value={business.email} onChange={(e) => setBusiness({ ...business, email: e.target.value })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-premium/60">Instagram<input value={business.instagram} onChange={(e) => setBusiness({ ...business, instagram: e.target.value })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-premium/60">Enlace de reservas<input value={business.bookingUrl} onChange={(e) => setBusiness({ ...business, bookingUrl: e.target.value })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-premium/60">Cómo llegar<input value={business.directions} onChange={(e) => setBusiness({ ...business, directions: e.target.value })} className={`${field} mt-1`} /></label>
+      </div>
+
+      <div className={`${panel} grid gap-4 sm:grid-cols-2`}>
+        <p className="font-medium text-premium sm:col-span-2">Políticas (las comunica el asistente)</p>
+        <label className="text-xs text-premium/60 sm:col-span-2">Política de seña<textarea rows={2} value={policies.deposit} onChange={(e) => setPolicies({ ...policies, deposit: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
+        <label className="text-xs text-premium/60">Política de cancelación<textarea rows={3} value={policies.cancellation} onChange={(e) => setPolicies({ ...policies, cancellation: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
+        <label className="text-xs text-premium/60">Política de reprogramación<textarea rows={3} value={policies.reschedule} onChange={(e) => setPolicies({ ...policies, reschedule: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
+        <label className="text-xs text-premium/60">Tiempo mínimo para cancelar (horas)<input type="number" min={0} value={policies.minCancelHours} onChange={(e) => setPolicies({ ...policies, minCancelHours: num(e.target.value) })} className={`${field} mt-1`} /></label>
+      </div>
+
+      <div className={`${panel} grid gap-4 sm:grid-cols-3`}>
+        <p className="font-medium text-premium sm:col-span-3">Reglas de seguimiento (crean tareas, no envían mensajes)</p>
+        <label className="text-xs text-premium/60">Pedir seña a turnos dentro de (horas)<input type="number" min={1} value={followup.depositHours} onChange={(e) => setFollowup({ ...followup, depositHours: num(e.target.value) })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-premium/60">Consultar si continúa tras (días sin turno)<input type="number" min={1} value={followup.continueAfterDays} onChange={(e) => setFollowup({ ...followup, continueAfterDays: num(e.target.value) })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-premium/60">Paciente inactivo tras (días)<input type="number" min={7} value={followup.inactiveAfterDays} onChange={(e) => setFollowup({ ...followup, inactiveAfterDays: num(e.target.value) })} className={`${field} mt-1`} /></label>
       </div>
 
       <div className={`${panel} grid gap-4 sm:grid-cols-2 lg:grid-cols-4`}>
@@ -843,15 +830,13 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
       </div>
 
       <div className={`${panel} grid gap-4 sm:grid-cols-2`}>
-        <p className="font-medium text-premium sm:col-span-2">Pagos y equipo</p>
+        <p className="font-medium text-premium sm:col-span-2">Pagos</p>
         <label className="text-xs text-premium/60">Seña sugerida (% del precio, para servicios sin seña fija)<input type="number" min={0} max={100} value={payments.depositPercent} onChange={(e) => setPayments({ ...payments, depositPercent: num(e.target.value) })} className={`${field} mt-1`} /></label>
         <div />
         <label className="text-xs text-premium/60">Medios de pago (uno por línea)
           <textarea rows={5} value={payments.methods.join(NL)} onChange={(e) => setPayments({ ...payments, methods: e.target.value.split(NL) })} className={`${field} mt-1 h-auto py-2`} />
         </label>
-        <label className="text-xs text-premium/60">Profesionales (uno por línea)
-          <textarea rows={5} value={team.professionals.join(NL)} onChange={(e) => setTeam({ professionals: e.target.value.split(NL) })} className={`${field} mt-1 h-auto py-2`} />
-        </label>
+        <p className="self-center text-xs text-premium/55">Las profesionales y los equipos se administran en la pestaña «Equipo».</p>
       </div>
 
       <div className={`${panel} grid gap-4 sm:grid-cols-2`}>

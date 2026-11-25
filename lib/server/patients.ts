@@ -15,6 +15,7 @@ export type PatientInput = {
   source: string
   birth_date: string | null
   notes: string
+  marketing_consent: boolean
 }
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "")
@@ -33,10 +34,11 @@ export function parsePatient(body: Record<string, unknown>): PatientInput | null
     source: text(body.source, 80),
     birth_date: day(body.birth_date),
     notes: text(body.notes, 4000),
+    marketing_consent: body.marketing_consent === true,
   }
 }
 
-const values = (p: PatientInput) => [p.name, p.phone, phoneKey(p.phone), p.email, p.gender, p.treatments, p.status, p.source, p.birth_date, p.notes]
+const values = (p: PatientInput) => [p.name, p.phone, phoneKey(p.phone), p.email, p.gender, p.treatments, p.status, p.source, p.birth_date, p.notes, p.marketing_consent]
 
 export async function createPatient(p: PatientInput): Promise<{ id: number } | { error: "telefono_existente"; id: number; name: string }> {
   return transaction(async (c) => {
@@ -46,7 +48,7 @@ export async function createPatient(p: PatientInput): Promise<{ id: number } | {
       if (rows[0]) return { error: "telefono_existente", id: rows[0].id, name: rows[0].name } as const
     }
     const { rows } = await c.query<{ id: number }>(
-      "insert into patients (name, phone, phone_key, email, gender, treatments, status, source, birth_date, notes) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id",
+      "insert into patients (name, phone, phone_key, email, gender, treatments, status, source, birth_date, notes, marketing_consent) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id",
       values(p),
     )
     await audit(c, "paciente", rows[0].id, "crear", null, p)
@@ -56,10 +58,10 @@ export async function createPatient(p: PatientInput): Promise<{ id: number } | {
 
 export async function updatePatient(id: number, p: PatientInput): Promise<boolean> {
   return transaction(async (c) => {
-    const { rows: before } = await c.query("select name, phone, email, gender, treatments, status, source, birth_date, notes from patients where id = $1", [id])
+    const { rows: before } = await c.query("select name, phone, email, gender, treatments, status, source, birth_date, notes, marketing_consent from patients where id = $1", [id])
     if (!before[0]) return false
     await c.query(
-      "update patients set name=$2, phone=$3, phone_key=$4, email=$5, gender=$6, treatments=$7, status=$8, source=$9, birth_date=$10, notes=$11 where id=$1",
+      "update patients set name=$2, phone=$3, phone_key=$4, email=$5, gender=$6, treatments=$7, status=$8, source=$9, birth_date=$10, notes=$11, marketing_consent=$12 where id=$1",
       [id, ...values(p)],
     )
     // los datos de contacto del paciente se reflejan en sus turnos
