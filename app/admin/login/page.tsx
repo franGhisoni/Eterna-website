@@ -7,7 +7,10 @@ import { Lock } from "lucide-react"
 const ERRORS: Record<string, string> = {
   credenciales_invalidas: "Usuario o contraseña incorrectos.",
   demasiados_intentos: "Demasiados intentos. Esperá unos minutos.",
-  sin_configurar: "Faltan ADMIN_USER, ADMIN_PASSWORD o SESSION_SECRET en el servidor.",
+  sin_configurar: "Falta SESSION_SECRET en las variables del servidor.",
+  secreto_corto: "SESSION_SECRET es muy corto: tiene que tener al menos 16 caracteres.",
+  sin_base: "Falta DATABASE_URL en las variables del servidor.",
+  base_no_disponible: "La base de datos no responde. Revisá los registros del servidor (Deploy Logs).",
 }
 
 export default function LoginPage() {
@@ -28,7 +31,7 @@ export default function LoginPage() {
       return
     }
     const data = (await res?.json().catch(() => ({}))) as { error?: string } | undefined
-    setError(ERRORS[data?.error ?? ""] ?? "No se pudo iniciar sesión.")
+    setError(ERRORS[data?.error ?? ""] ?? (res ? `No se pudo iniciar sesión (error ${res.status} del servidor).` : "No hay conexión con el servidor."))
     setBusy(false)
   }
 
