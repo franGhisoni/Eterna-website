@@ -712,7 +712,7 @@ export function TasksView({ flash, onPatient }: { flash: Flash; onPatient: (id: 
   const [team, setTeam] = useState<string[]>([])
 
   const load = useCallback(() => {
-    api<{ items: Task[] }>("/api/admin/data/tareas").then((d) => setTasks(d.items)).catch(() => flash("No se pudieron cargar las tareas", true))
+    api<{ items: Task[] }>("/api/admin/data/tareas").then((d) => setTasks(d.items.filter((t) => t.kind !== "mensaje"))).catch(() => flash("No se pudieron cargar las tareas", true))
   }, [flash])
   useEffect(() => {
     // al abrir, el sistema genera los seguimientos pendientes según las reglas configuradas

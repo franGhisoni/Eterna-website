@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { BadgePercent, Bot, CalendarDays, Search, ClipboardList, Copy, ExternalLink, History, Landmark, LayoutDashboard, LineChart, ListTodo, LogOut, Menu, MessagesSquare, ShieldCheck, Stethoscope, Plus, Save, Settings2, Sparkles, Trash2, Users, Wallet, X } from "lucide-react"
+import { BadgePercent, Bot, CalendarDays, Search, ClipboardList, Copy, ExternalLink, History, Landmark, LayoutDashboard, LineChart, ListTodo, LogOut, Menu, MessagesSquare, Send, ShieldCheck, Stethoscope, Plus, Save, Settings2, Sparkles, Trash2, Users, Wallet, X } from "lucide-react"
 import { AgendaView, CashView, DashboardView, PatientsView } from "./operations"
+import { MessagesView } from "./messages"
 import { AssistantPreview, InboxView, JornadasView, RecordList, ReportsView, SecurityView, TasksView, TeamView } from "./management"
 import { ActionMenu, api, Badge, btnDanger, btnGhost, btnIcon, btnLink, btnPrimary, btnSmall, Card, Empty, Field, field, fieldInline, lbl, Loading, PageHeader, panel, SaveBar, Segmented } from "./ui"
 import type { Settings, ReasoningEffort } from "@/lib/server/settings"
@@ -80,6 +81,7 @@ const NAV = [
   {
     group: "Organización",
     items: [
+      { id: "mensajes", label: "Mensajes", icon: Send, roles: STAFF },
       { id: "agenda", label: "Jornadas", icon: CalendarDays, roles: STAFF },
       { id: "tareas", label: "Tareas", icon: ListTodo, roles: ALL },
       { id: "conversaciones", label: "Conversaciones", icon: MessagesSquare, roles: STAFF },
@@ -107,7 +109,7 @@ type TabId = (typeof NAV)[number]["items"][number]["id"]
 const ALL_TABS = NAV.flatMap((g) => [...g.items] as unknown[]) as ReadonlyArray<{ id: TabId; label: string; icon: typeof Users; roles: Role[] }>
 const isTab = (v: string): v is TabId => ALL_TABS.some((t) => t.id === v)
 
-function NavList({ tab, role, onPick }: { tab: TabId; role: Role | null; onPick: (t: TabId) => void }) {
+function NavList({ tab, role, onPick, badges }: { tab: TabId; role: Role | null; onPick: (t: TabId) => void; badges?: Partial<Record<TabId, number>> }) {
   return (
     <nav aria-label="Secciones del panel" className="space-y-4">
       {NAV.map((g) => {
@@ -132,6 +134,9 @@ function NavList({ tab, role, onPick }: { tab: TabId; role: Role | null; onPick:
                       {active && <span aria-hidden className="absolute left-0 top-1.5 h-6 w-[3px] rounded-r-full bg-primary" />}
                       <t.icon className="h-4 w-4 shrink-0" aria-hidden />
                       <span className="truncate">{t.label}</span>
+                      {!!badges?.[t.id] && (
+                        <span className="ml-auto rounded-full bg-primary px-1.5 py-px text-[11px] font-semibold leading-4 text-white" aria-label={`${badges[t.id]} pendientes`}>{badges[t.id]}</span>
+                      )}
                     </button>
                   </li>
                 )
@@ -153,6 +158,16 @@ export function AdminApp() {
   const [status, setStatus] = useState<Status | null>(null)
   const [flash, setFlash, closeFlash] = useFlash()
   const [session, setSession] = useState<{ username: string; role: Role; professional: string } | null>(null)
+  const [msgDue, setMsgDue] = useState(0)
+
+  // mensajes para enviar hoy (aviso en el menú): se actualiza al cambiar de sección y cada minuto
+  useEffect(() => {
+    if (!session || session.role === "profesional") return
+    const load = () => api<{ due: number }>("/api/admin/messages?resumen=1").then((d) => setMsgDue(d.due)).catch(() => {})
+    load()
+    const t = setInterval(load, 60_000)
+    return () => clearInterval(t)
+  }, [session, tab])
 
   // la sección actual vive en la URL (#agenda): se puede recargar, compartir y usar "atrás"
   const setTab = useCallback((t: TabId) => {
@@ -252,7 +267,7 @@ export function AdminApp() {
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-[248px] flex-col border-r border-line bg-white lg:flex">
         <div className="flex h-14 shrink-0 items-center px-5">{brand}</div>
         <div className="flex-1 overflow-y-auto px-3 pb-3 pt-3 [scrollbar-width:thin]">
-          <NavList tab={tab} role={session?.role ?? null} onPick={setTab} />
+          <NavList tab={tab} role={session?.role ?? null} onPick={setTab} badges={{ mensajes: msgDue }} />
         </div>
         <div className="space-y-2 border-t border-line p-3">
           <a href="/chat" target="_blank" rel="noreferrer" className="flex h-[34px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-2 hover:bg-surface hover:text-ink">
@@ -277,7 +292,7 @@ export function AdminApp() {
               {brand}
               <button onClick={() => setMenuOpen(false)} className={btnIcon} aria-label="Cerrar menú" autoFocus><X /></button>
             </div>
-            <div className="flex-1 overflow-y-auto px-3 py-4"><NavList tab={tab} role={session?.role ?? null} onPick={setTab} /></div>
+            <div className="flex-1 overflow-y-auto px-3 py-4"><NavList tab={tab} role={session?.role ?? null} onPick={setTab} badges={{ mensajes: msgDue }} /></div>
             <div className="space-y-2 border-t border-line p-3">
               <a href="/chat" target="_blank" rel="noreferrer" className="flex h-10 items-center gap-2.5 rounded-lg px-3 text-sm text-ink-2 hover:bg-surface">
                 <ExternalLink className="h-4 w-4" aria-hidden /> Ver el chat de la web
@@ -296,6 +311,7 @@ export function AdminApp() {
           {tab === "caja" && <CashView flash={setFlash} />}
           {tab === "agenda" && <JornadasView flash={setFlash} />}
           {tab === "conversaciones" && <InboxView flash={setFlash} onPatient={showPatient} />}
+          {tab === "mensajes" && <MessagesView flash={setFlash} onPatient={showPatient} />}
           {tab === "tareas" && <TasksView flash={setFlash} onPatient={showPatient} />}
           {tab === "equipo" && <TeamView flash={setFlash} />}
           {tab === "reportes" && <ReportsView flash={setFlash} />}
@@ -1056,7 +1072,8 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
       <div className={`${panel} grid gap-4 sm:grid-cols-3`}>
         <p className="font-medium text-ink sm:col-span-3">Reglas de seguimiento (crean tareas, no envían mensajes)</p>
         <label className="text-xs text-ink-3">Pedir seña a turnos dentro de (horas)<input type="number" min={1} value={followup.depositHours} onChange={(e) => setFollowup({ ...followup, depositHours: num(e.target.value) })} className={`${field} mt-1`} /></label>
-        <label className="text-xs text-ink-3">Consultar si continúa tras (días sin turno)<input type="number" min={1} value={followup.continueAfterDays} onChange={(e) => setFollowup({ ...followup, continueAfterDays: num(e.target.value) })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-ink-3">Cada cuántos días se espera la próxima sesión<input type="number" min={7} value={followup.nextSessionDays} onChange={(e) => setFollowup({ ...followup, nextSessionDays: num(e.target.value) })} className={`${field} mt-1`} /></label>
+        <label className="text-xs text-ink-3">Avisarme para agendarla con (días de anticipación)<input type="number" min={0} value={followup.remindDaysBefore} onChange={(e) => setFollowup({ ...followup, remindDaysBefore: num(e.target.value) })} className={`${field} mt-1`} /></label>
         <label className="text-xs text-ink-3">Paciente inactivo tras (días)<input type="number" min={7} value={followup.inactiveAfterDays} onChange={(e) => setFollowup({ ...followup, inactiveAfterDays: num(e.target.value) })} className={`${field} mt-1`} /></label>
       </div>
 
@@ -1066,6 +1083,17 @@ function ConfigTab({ settings, status, save }: { settings: Settings; status: Sta
         <label className="text-xs text-ink-3">Anticipación mínima (horas)<input type="number" min={0} value={booking.minHoursAhead} onChange={(e) => setBooking({ ...booking, minHoursAhead: num(e.target.value) })} className={`${field} mt-1`} /></label>
         <label className="text-xs text-ink-3">Tiempo para pagar la seña (min)<input type="number" min={10} value={booking.holdMinutes} onChange={(e) => setBooking({ ...booking, holdMinutes: num(e.target.value) })} className={`${field} mt-1`} /></label>
         <label className="text-xs text-ink-3">Turnos simultáneos<input type="number" min={1} value={booking.capacity} onChange={(e) => setBooking({ ...booking, capacity: num(e.target.value) })} className={`${field} mt-1`} /></label>
+      </div>
+
+      <div className={`${panel} grid gap-4 sm:grid-cols-2`}>
+        <div className="sm:col-span-2">
+          <p className="font-medium text-ink">Textos de los mensajes</p>
+          <p className="text-xs text-ink-3">Es lo que aparece ya redactado en «Mensajes». Podés usar {"{nombre}"}, {"{tratamiento}"}, {"{fecha}"}, {"{hora}"}, {"{saldo}"}, {"{interes}"}, {"{link}"}, {"{direccion}"} y {"{centro}"}; cada mensaje se puede retocar antes de enviarlo.</p>
+        </div>
+        <label className="text-xs text-ink-3 sm:col-span-2">Para agendar la próxima sesión<textarea rows={3} value={followup.nextSessionTemplate} onChange={(e) => setFollowup({ ...followup, nextSessionTemplate: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
+        <label className="text-xs text-ink-3">Recordatorio de turno (un día antes)<textarea rows={3} value={followup.appointmentTemplate} onChange={(e) => setFollowup({ ...followup, appointmentTemplate: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
+        <label className="text-xs text-ink-3">Saldo pendiente<textarea rows={3} value={followup.balanceTemplate} onChange={(e) => setFollowup({ ...followup, balanceTemplate: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
+        <label className="text-xs text-ink-3 sm:col-span-2">Seguimiento de una consulta que no reservó<textarea rows={3} value={followup.inquiryTemplate} onChange={(e) => setFollowup({ ...followup, inquiryTemplate: e.target.value })} className={`${field} mt-1 h-auto py-2`} /></label>
       </div>
 
       <div className={`${panel} grid gap-4 sm:grid-cols-2`}>

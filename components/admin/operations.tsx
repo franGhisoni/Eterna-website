@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
 import { AlertTriangle, CalendarPlus, Users, CheckCircle2, ChevronLeft, ChevronRight, Download, History, MessageCircle, Pencil, Plus, Save, Search, Trash2, UserPlus, UserRound, Wallet, X, XCircle } from "lucide-react"
 import { addDays, formatARS, formatDay, todayAR, weekdayOf } from "@/lib/time"
 import { AlertItems, PeriodPanel, useAdminAlerts } from "./management"
-import { ActionMenu, api, ApiError, Badge, btnGhost, btnIcon, btnPrimary, btnSmall, Card, chip, Drawer, Empty, field, fieldInline, fromLocalInput, hhmm, lbl, Loading, PageHeader, panel, Segmented, shortDate, Spinner, shortDateTime, Stat, tableHead, toLocalInput, TONE, type Flash, type MenuItem, type Tone } from "./ui"
+import { ActionMenu, api, ApiError, Badge, btnGhost, btnIcon, btnPrimary, btnQuiet, btnSmall, Card, chip, Drawer, Empty, field, fieldInline, fromLocalInput, hhmm, lbl, Loading, PageHeader, panel, Segmented, shortDate, Spinner, shortDateTime, Stat, tableHead, toLocalInput, TONE, type Flash, type MenuItem, type Tone } from "./ui"
 
 /* ───────────── Tipos compartidos ───────────── */
 
@@ -127,6 +127,13 @@ const promoActiveOn = (p: Promo, day: string) => p.active && (!p.starts_on || p.
 
 const DURATIONS = [15, 20, 30, 40, 45, 60, 75, 90, 120]
 
+/** Mismo día del mes siguiente (si el mes es más corto, el último día). */
+function sameDayNextMonth(day: string): string {
+  const [y, m, d] = day.split("-").map(Number)
+  const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate()
+  return new Date(Date.UTC(y, m, Math.min(d, last))).toISOString().slice(0, 10)
+}
+
 /** Importe editable en el lugar: se toca, se escribe y se guarda con Enter o al salir (Escape cancela). */
 function QuickMoney({ label, value, onSave, empty, emphasis }: { label: string; value: number; onSave?: (n: number) => void; empty?: string; emphasis?: "strong" | "due" }) {
   const [editing, setEditing] = useState(false)
@@ -180,13 +187,14 @@ const waNumber = (phone: string) => phone.replace(/\D/g, "").replace(/^(?!54)/, 
  * Un turno en la agenda. Jerarquía: horario → paciente y servicio → dinero → estado → acciones.
  * La acción más probable queda a la vista; el resto va en el menú «Más acciones».
  */
-export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick, compact }: {
+export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick, onNext, compact }: {
   b: AgendaItem
   onEdit: (b: AgendaItem) => void
   onPay: (b: AgendaItem) => void
   onStatus: (b: AgendaItem, status: string) => void
   onPatient?: (id: number) => void
   onQuick?: (b: AgendaItem, patch: Record<string, unknown>) => void
+  onNext?: (b: AgendaItem) => void
   compact?: boolean
 }) {
   const st = STATUS[b.state] ?? STATUS.confirmed
@@ -198,9 +206,12 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
   const payLabel = b.deposit_unrecorded > 0 ? "Registrar seña" : "Registrar pago"
 
   // acción principal: la que más probablemente se necesita ahora
+  const canNext = !!onNext && !!b.patient_id && !closed && b.state !== "no_show"
   const primary: { label: string; run: () => void; icon?: React.ReactNode } | null = closed
     ? null
-    : active && soon
+    : b.state === "done" && canNext
+      ? { label: "Próxima sesión", run: () => onNext!(b), icon: <CalendarPlus /> }
+      : active && soon
       ? { label: "Realizado", run: () => onStatus(b, "done"), icon: <CheckCircle2 /> }
       : b.balance > 0 || b.deposit_unrecorded > 0
         ? { label: payLabel, run: () => onPay(b), icon: <Wallet /> }
@@ -214,6 +225,7 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
     { label: "Marcar como realizado", onSelect: () => onStatus(b, "done"), hidden: !active || primary?.label === "Realizado" },
     { label: "Marcar ausente", onSelect: () => onStatus(b, "no_show"), hidden: !active },
     { label: "Enviar recordatorio por WhatsApp", icon: <MessageCircle />, hidden: !active || !b.phone, href: `https://wa.me/${waNumber(b.phone)}?text=${encodeURIComponent(`Hola ${b.name.split(" ")[0]}! Te recordamos tu turno de ${b.service_name} el ${shortDateTime(b.starts_at)} hs en Eterna.`)}` },
+    { label: "Agendar próxima sesión", icon: <CalendarPlus />, hidden: !canNext || primary?.label === "Próxima sesión", onSelect: () => onNext?.(b) },
     { label: "Ver comprobante", hidden: !b.has_receipt, href: `/api/admin/bookings/${b.id}/comprobante` },
     { label: "Ver ficha del paciente", icon: <UserRound />, hidden: !b.patient_id || !onPatient, onSelect: () => onPatient?.(b.patient_id!) },
     { label: "Cancelar turno", danger: true, icon: <XCircle />, hidden: closed, onSelect: () => onStatus(b, "cancelled") },
@@ -293,7 +305,7 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
 /* ───────────── Acciones comunes sobre turnos ───────────── */
 
 export function useAppointmentActions(flash: Flash, reload: () => void) {
-  const [editing, setEditing] = useState<{ booking?: AgendaItem; patient?: { id: number; name: string } } | null>(null)
+  const [editing, setEditing] = useState<{ booking?: AgendaItem; patient?: { id: number; name: string }; nextFrom?: AgendaItem } | null>(null)
   const [paying, setPaying] = useState<{ booking?: AgendaItem; patient?: { id: number; name: string } } | null>(null)
 
   const changeStatus = async (b: AgendaItem, status: string) => {
@@ -306,6 +318,8 @@ export function useAppointmentActions(flash: Flash, reload: () => void) {
       await api("/api/admin/bookings", { method: "PATCH", body: JSON.stringify({ id: b.id, status }) })
       flash(`Turno: ${STATUS[status]?.label.toLowerCase() ?? status}`)
       reload()
+      // al terminar una sesión, se propone agendar la próxima en el momento
+      if (status === "done" && b.patient_id) setEditing({ nextFrom: b, patient: { id: b.patient_id, name: b.name } })
     } catch (e) {
       if (e instanceof ApiError && e.message === "horario_ocupado") {
         if (confirm(`Ese horario ya está ocupado por ${(e.data.with as string[]).join(", ")}. ¿Confirmarlo igual (sobreturno)?`)) {
@@ -339,6 +353,7 @@ export function useAppointmentActions(flash: Flash, reload: () => void) {
         <AppointmentDialog
           booking={editing.booking}
           patient={editing.patient}
+          nextFrom={editing.nextFrom}
           flash={flash}
           onClose={() => setEditing(null)}
           onSaved={() => {
@@ -364,6 +379,7 @@ export function useAppointmentActions(flash: Flash, reload: () => void) {
 
   return {
     edit: (b: AgendaItem) => setEditing({ booking: b }),
+    next: (b: AgendaItem) => b.patient_id && setEditing({ nextFrom: b, patient: { id: b.patient_id, name: b.name } }),
     create: (patient?: { id: number; name: string }) => setEditing({ patient }),
     pay: (b: AgendaItem) => setPaying({ booking: b }),
     payPatient: (patient: { id: number; name: string }) => setPaying({ patient }),
@@ -375,7 +391,7 @@ export function useAppointmentActions(flash: Flash, reload: () => void) {
 
 /* ───────────── Crear / editar turno ───────────── */
 
-function PatientPicker({ value, onChange }: { value: { id: number; name: string } | null; onChange: (p: { id: number; name: string } | null, draft?: { name: string; phone: string }) => void }) {
+export function PatientPicker({ value, onChange }: { value: { id: number; name: string } | null; onChange: (p: { id: number; name: string } | null, draft?: { name: string; phone: string }) => void }) {
   const [q, setQ] = useState("")
   const [results, setResults] = useState<Array<{ id: number; name: string; phone: string }>>([])
   const [creating, setCreating] = useState(false)
@@ -424,9 +440,11 @@ function PatientPicker({ value, onChange }: { value: { id: number; name: string 
   )
 }
 
-export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }: {
+export function AppointmentDialog({ booking, patient, nextFrom, flash, onClose, onSaved }: {
   booking?: AgendaItem
   patient?: { id: number; name: string }
+  /** agendar la próxima sesión de una persona a partir de la que acaba de tener */
+  nextFrom?: AgendaItem
   flash: Flash
   onClose: () => void
   onSaved: () => void
@@ -435,20 +453,43 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
   const editing = !!booking
   const [who, setWho] = useState<{ id: number; name: string } | null>(booking?.patient_id ? { id: booking.patient_id, name: booking.name } : patient ?? null)
   const [draft, setDraft] = useState<{ name: string; phone: string } | undefined>()
+  const src = booking ?? nextFrom
   const [f, setF] = useState(() => ({
-    serviceId: booking?.service_id ?? 0,
-    serviceName: booking?.service_name ?? "",
-    zones: booking?.zones ?? "",
-    professional: booking?.professional ?? "",
-    start: booking ? toLocalInput(booking.starts_at) : "",
-    durationMin: booking ? Math.round((new Date(booking.ends_at).getTime() - new Date(booking.starts_at).getTime()) / 60_000) : 30,
+    serviceId: src?.service_id ?? 0,
+    serviceName: src?.service_name ?? "",
+    zones: src?.zones ?? "",
+    professional: src?.professional ?? "",
+    // la próxima sesión arranca 4 semanas después, mismo día de la semana y misma hora
+    start: booking ? toLocalInput(booking.starts_at) : nextFrom ? `${addDays(todayAR(new Date(nextFrom.starts_at)), 28)}T${hhmm(nextFrom.starts_at)}` : "",
+    durationMin: src ? Math.round((new Date(src.ends_at).getTime() - new Date(src.starts_at).getTime()) / 60_000) : 30,
     promoId: booking?.promo_id ?? 0,
-    price: booking?.price ?? 0,
+    price: src?.price ?? 0,
     finalPrice: booking ? String(booking.final_price) : "",
-    deposit: booking?.deposit ?? 0,
+    deposit: src?.deposit ?? 0,
     status: booking?.status ?? "confirmed",
     notes: booking?.notes ?? "",
   }))
+  const [reminding, setReminding] = useState(false)
+  const lastDay = nextFrom ? todayAR(new Date(nextFrom.starts_at)) : ""
+  const [near, setNear] = useState<Array<{ day: string; free: number }>>([])
+  // jornadas con lugar cerca de la fecha elegida (para no adivinar días sin atención)
+  useEffect(() => {
+    if (!nextFrom) return
+    const target = f.start.slice(0, 10) || addDays(lastDay, 28)
+    api<{ occupancy: Record<string, { taken: number; free: number }> }>(`/api/admin/agenda?desde=${addDays(target, -14)}&hasta=${addDays(target, 14)}`)
+      .then((d) =>
+        setNear(
+          Object.entries(d.occupancy)
+            .filter(([day, o]) => o.free > 0 && day > todayAR())
+            .map(([day, o]) => ({ day, free: o.free }))
+            .sort((a, b) => Math.abs(new Date(a.day).getTime() - new Date(target).getTime()) - Math.abs(new Date(b.day).getTime() - new Date(target).getTime()))
+            .slice(0, 6)
+            .sort((a, b) => a.day.localeCompare(b.day)),
+        ),
+      )
+      .catch(() => setNear([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nextFrom, f.start.slice(0, 10)])
   const [slots, setSlots] = useState<string[] | null>(null)
   const [busy, setBusy] = useState(false)
   const set = (p: Partial<typeof f>) => setF((v) => ({ ...v, ...p }))
@@ -481,7 +522,7 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
     if (!f.serviceName.trim()) return flash("Elegí el tratamiento", true)
     setBusy(true)
     const body = {
-      ...(editing ? { id: booking!.id } : { patientId: who?.id ?? null, patient: who ? undefined : draft, source: patient ? "paciente" : "admin" }),
+      ...(editing ? { id: booking!.id } : { patientId: who?.id ?? null, patient: who ? undefined : draft, source: patient || nextFrom ? "paciente" : "admin" }),
       serviceId: f.serviceId || null,
       serviceName: f.serviceName,
       zones: f.zones,
@@ -498,7 +539,7 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
     }
     try {
       await api("/api/admin/bookings", { method: editing ? "PATCH" : "POST", body: JSON.stringify(body) })
-      flash(editing ? "Turno actualizado" : "Turno creado: ya figura en la agenda y en la ficha del paciente")
+      flash(editing ? "Turno actualizado" : nextFrom ? `Próxima sesión agendada para el ${formatDay(f.start.slice(0, 10)).toLowerCase()}` : "Turno creado: ya figura en la agenda y en la ficha del paciente")
       onSaved()
     } catch (e) {
       if (e instanceof ApiError && e.message === "horario_ocupado") {
@@ -518,19 +559,70 @@ export function AppointmentDialog({ booking, patient, flash, onClose, onSaved }:
     setBusy(false)
   }
 
+  const remind = async () => {
+    if (!nextFrom) return
+    setReminding(true)
+    try {
+      const r = await api<{ dueOn: string }>("/api/admin/messages", { method: "POST", body: JSON.stringify({ accion: "proxima", bookingId: nextFrom.id }) })
+      flash(`Listo: te lo recordamos el ${formatDay(r.dueOn).toLowerCase()} en «Mensajes»`)
+      onClose()
+    } catch {
+      flash("No se pudo dejar el recordatorio", true)
+    }
+    setReminding(false)
+  }
+  const pickDay = (d: string) => set({ start: `${d}T${f.start.slice(11) || (nextFrom ? hhmm(nextFrom.starts_at) : "10:00")}` })
+
   return (
     <Drawer
-      title={editing ? "Editar turno" : patient ? `Agregar sesión · ${patient.name}` : "Nuevo turno"}
-      subtitle={editing ? `${booking!.name} · ${shortDateTime(booking!.starts_at)}` : undefined}
+      title={editing ? "Editar turno" : nextFrom ? `Próxima sesión · ${nextFrom.name}` : patient ? `Agregar sesión · ${patient.name}` : "Nuevo turno"}
+      subtitle={editing ? `${booking!.name} · ${shortDateTime(booking!.starts_at)}` : nextFrom ? `Última sesión: ${nextFrom.service_name} · ${shortDateTime(nextFrom.starts_at)}` : undefined}
       onClose={onClose}
       footer={
-        <>
-          <button onClick={() => save()} disabled={busy} className={btnPrimary}>{busy ? <Spinner /> : <Save />} {editing ? "Guardar cambios" : "Crear turno"}</button>
-          <button onClick={onClose} className={btnGhost}>Cancelar</button>
-        </>
+        nextFrom ? (
+          <>
+            <button onClick={() => save()} disabled={busy} className={btnPrimary}>{busy ? <Spinner /> : <CalendarPlus />} Agendar próxima sesión</button>
+            <button onClick={remind} disabled={reminding} className={btnGhost} title="Deja un aviso en «Mensajes» para escribirle con tiempo">{reminding ? <Spinner /> : <MessageCircle />} Recordarme escribirle</button>
+            <button onClick={onClose} className={btnQuiet}>Ahora no</button>
+          </>
+        ) : (
+          <>
+            <button onClick={() => save()} disabled={busy} className={btnPrimary}>{busy ? <Spinner /> : <Save />} {editing ? "Guardar cambios" : "Crear turno"}</button>
+            <button onClick={onClose} className={btnGhost}>Cancelar</button>
+          </>
+        )
       }
     >
       <div className="space-y-4">
+        {nextFrom && (
+          <div className="rounded-xl border border-line bg-surface/60 p-3">
+            <p className="text-sm font-medium text-ink">¿Cuándo es su próxima sesión?</p>
+            <p className="text-xs text-ink-2">Ya vienen cargados el tratamiento, las zonas, la profesional y la hora de la última sesión. Elegí el día:</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {[
+                ["En 4 semanas", addDays(lastDay, 28)],
+                ["En 5 semanas", addDays(lastDay, 35)],
+                ["Mismo día del mes que viene", sameDayNextMonth(lastDay)],
+              ].map(([label, d]) => (
+                <button key={label} type="button" onClick={() => pickDay(d)} className={`h-8 rounded-full border px-3 text-xs font-medium ${f.start.slice(0, 10) === d ? "border-primary bg-primary text-white" : "border-line bg-white text-ink hover:bg-surface"}`}>
+                  {label} · {d.slice(8)}/{d.slice(5, 7)}
+                </button>
+              ))}
+            </div>
+            {near.length > 0 && (
+              <div className="mt-2">
+                <p className="text-xs text-ink-3">Jornadas con lugar cerca de esa fecha:</p>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {near.map((n) => (
+                    <button key={n.day} type="button" onClick={() => pickDay(n.day)} className={`h-8 rounded-full border px-3 text-xs ${f.start.slice(0, 10) === n.day ? "border-primary bg-primary text-white" : "border-line bg-white text-ink hover:bg-surface"}`}>
+                      {["dom", "lun", "mar", "mié", "jue", "vie", "sáb"][weekdayOf(n.day)]} {n.day.slice(8)}/{n.day.slice(5, 7)} · {n.free} libres
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <div>
           <p className={`${lbl} mb-1`}>Paciente</p>
           {editing ? <p className="text-sm font-medium text-ink">{booking!.name}</p> : <PatientPicker value={who} onChange={(p, d) => { setWho(p); setDraft(d) }} />}
@@ -923,7 +1015,7 @@ export function AgendaView({ flash, onPatient }: { flash: Flash; onPatient: (id:
               <span className="text-sm text-ink-3">{list.length} {list.length === 1 ? "turno" : "turnos"}</span>
             </h2>
             <ul className="divide-y divide-line px-4 sm:px-5">
-              {list.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} onQuick={actions.quick} />)}
+              {list.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} onQuick={actions.quick} onNext={actions.next} />)}
             </ul>
           </section>
         ))
@@ -953,6 +1045,10 @@ export function DashboardView({ flash, onPatient, go }: { flash: Flash; onPatien
   useEffect(load, [load])
   const actions = useAppointmentActions(flash, load)
   const alerts = useAdminAlerts(flash)
+  const [msgs, setMsgs] = useState<{ due: number; upcoming: number } | null>(null)
+  useEffect(() => {
+    api<{ due: number; upcoming: number }>("/api/admin/messages?resumen=1").then(setMsgs).catch(() => setMsgs(null))
+  }, [])
   const pending = (d?.toReview.length ?? 0) + (d?.withoutDeposit.length ?? 0)
 
   return (
@@ -970,6 +1066,7 @@ export function DashboardView({ flash, onPatient, go }: { flash: Flash; onPatien
                 { label: "Registrar un pago (Caja)", icon: <Wallet />, onSelect: () => go("caja") },
                 { label: "Abrir o editar una jornada", icon: <CalendarPlus />, onSelect: () => go("agenda") },
                 { label: "Crear una promoción", icon: <Plus />, onSelect: () => go("promos") },
+                { label: "Mensajes para enviar", icon: <MessageCircle />, onSelect: () => go("mensajes") },
                 { label: "Ver conversaciones", icon: <MessageCircle />, onSelect: () => go("conversaciones") },
               ]}
             />
@@ -998,17 +1095,26 @@ export function DashboardView({ flash, onPatient, go }: { flash: Flash; onPatien
               <Empty icon={<CalendarPlus />} title="No hay turnos hoy" text="Los turnos de hoy aparecen acá, con su seña y saldo." action={<button onClick={() => actions.create()} className={btnGhost}>Agendar un turno</button>} />
             ) : (
               <ul className="divide-y divide-line px-4 sm:px-5">
-                {d.today.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} onQuick={actions.quick} />)}
+                {d.today.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} onQuick={actions.quick} onNext={actions.next} />)}
               </ul>
             )}
           </Card>
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
             <Card title="Para atender" description={pending || alerts ? undefined : "Todo al día."}>
-              {d.toReview.length + d.withoutDeposit.length === 0 && !alerts ? (
+              {d.toReview.length + d.withoutDeposit.length === 0 && !alerts && !msgs ? (
                 <Loading rows={2} />
               ) : (
                 <ul className="-my-2.5 divide-y divide-line">
+                  {msgs && (msgs.due > 0 || msgs.upcoming > 0) && (
+                    <li className="flex items-center justify-between gap-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-ink">{msgs.due > 0 ? `${msgs.due} ${msgs.due === 1 ? "mensaje" : "mensajes"} para enviar hoy` : "Mensajes programados"}</p>
+                        <p className="text-xs text-ink-2">{msgs.upcoming > 0 ? `${msgs.upcoming} más en los próximos 7 días` : "Ya están redactados"}</p>
+                      </div>
+                      <button onClick={() => go("mensajes")} className={btnSmall}>Ver mensajes</button>
+                    </li>
+                  )}
                   {d.toReview.map((b) => (
                     <li key={b.id} className="flex items-center justify-between gap-3 py-2.5">
                       <div className="min-w-0">
@@ -1276,6 +1382,10 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <button onClick={() => actions.create({ id: p.id, name: p.name })} className={btnPrimary}><CalendarPlus className="h-4 w-4" /> Agregar sesión</button>
+            {(() => {
+              const last = (profile?.bookings ?? []).find((x) => x.state === "done") ?? (profile?.bookings ?? []).find((x) => !["cancelled", "expired"].includes(x.state))
+              return last ? <button onClick={() => actions.next(last)} className={btnGhost}><CalendarPlus className="h-4 w-4" /> Próxima sesión</button> : null
+            })()}
             <button onClick={() => actions.payPatient({ id: p.id, name: p.name })} className={btnGhost}><Wallet className="h-4 w-4" /> Pago a cuenta</button>
             {p.phone && <a href={`https://wa.me/${p.phone.replace(/\D/g, "").replace(/^(?!54)/, "549")}`} target="_blank" rel="noreferrer" className={btnGhost}>WhatsApp</a>}
           </div>
@@ -1332,7 +1442,7 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
             <div>
               <p className="text-sm font-medium text-ink">Próximos</p>
               <ul className="divide-y divide-border">
-                {upcoming.map((b) => <AppointmentRow key={b.id} b={b} compact onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onQuick={actions.quick} />)}
+                {upcoming.map((b) => <AppointmentRow key={b.id} b={b} compact onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onQuick={actions.quick} onNext={actions.next} />)}
               </ul>
             </div>
           )}
@@ -1345,7 +1455,7 @@ function PatientDrawer({ id, flash, onClose, onCreated }: { id: number | null; f
                 {past.map((b) => (
                   <Fragment key={b.id}>
                     {sessionNumber.has(b.id) && <li className="pt-2 text-xs font-medium text-primary">Sesión n.º {sessionNumber.get(b.id)}</li>}
-                    <AppointmentRow b={b} compact onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onQuick={actions.quick} />
+                    <AppointmentRow b={b} compact onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onQuick={actions.quick} onNext={actions.next} />
                   </Fragment>
                 ))}
               </ul>

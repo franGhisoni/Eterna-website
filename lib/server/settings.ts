@@ -12,7 +12,19 @@ export type TransferSettings = { alias: string; holder: string; bank: string; cb
 export type PaymentSettings = { methods: string[]; depositPercent: number }
 export type TeamSettings = { professionals: string[] }
 export type PolicySettings = { cancellation: string; reschedule: string; deposit: string; minCancelHours: number }
-export type FollowupSettings = { depositHours: number; continueAfterDays: number; inactiveAfterDays: number }
+export type FollowupSettings = {
+  depositHours: number
+  continueAfterDays: number
+  inactiveAfterDays: number
+  /** cada cuántos días se espera la próxima sesión (por ejemplo, 30 = un mes) */
+  nextSessionDays: number
+  /** con cuántos días de anticipación se avisa para agendarla */
+  remindDaysBefore: number
+  nextSessionTemplate: string
+  appointmentTemplate: string
+  balanceTemplate: string
+  inquiryTemplate: string
+}
 
 export type Settings = {
   ai: AiSettings
@@ -53,7 +65,18 @@ export const DEFAULT_SETTINGS: Settings = {
   payments: { methods: ["Efectivo", "Transferencia", "Mercado Pago", "Tarjeta de débito", "Tarjeta de crédito"], depositPercent: 25 },
   team: { professionals: [] },
   policies: { cancellation: "", reschedule: "", deposit: "Para reservar se abona una seña del 25 % del valor del tratamiento.", minCancelHours: 24 },
-  followup: { depositHours: 48, continueAfterDays: 45, inactiveAfterDays: 90 },
+  followup: {
+    depositHours: 48,
+    continueAfterDays: 45,
+    inactiveAfterDays: 90,
+    nextSessionDays: 30,
+    remindDaysBefore: 10,
+    nextSessionTemplate:
+      "Hola {nombre}! ¿Cómo estás? Ya se acerca el mes de tu última sesión de {tratamiento} en {centro}. ¿Te agendamos la próxima? Contame qué día y horario te queda cómodo. Si preferís, también podés reservar acá: {link}",
+    appointmentTemplate: "Hola {nombre}! Te recordamos tu turno de {tratamiento} el {fecha} a las {hora} hs en {centro} ({direccion}). ¡Te esperamos!",
+    balanceTemplate: "Hola {nombre}! Te escribimos de {centro}: quedó un saldo de {saldo} de tu sesión de {tratamiento}. Cuando puedas, avisanos cómo preferís abonarlo. ¡Gracias!",
+    inquiryTemplate: "Hola {nombre}! Te escribimos de {centro}: nos consultaste por {interes}. ¿Querés que te ayudemos a reservar un turno? Podés hacerlo acá: {link}",
+  },
 }
 
 export async function getSettings(): Promise<Settings> {
@@ -128,6 +151,12 @@ export function sanitizeSettings(input: Partial<Record<keyof Settings, Record<st
       depositHours: clampInt(followup.depositHours, 1, 24 * 14, current.followup.depositHours),
       continueAfterDays: clampInt(followup.continueAfterDays, 1, 365, current.followup.continueAfterDays),
       inactiveAfterDays: clampInt(followup.inactiveAfterDays, 7, 1000, current.followup.inactiveAfterDays),
+      nextSessionDays: clampInt(followup.nextSessionDays, 7, 365, current.followup.nextSessionDays),
+      remindDaysBefore: clampInt(followup.remindDaysBefore, 0, 120, current.followup.remindDaysBefore),
+      nextSessionTemplate: str(followup.nextSessionTemplate, 1500, current.followup.nextSessionTemplate) || current.followup.nextSessionTemplate,
+      appointmentTemplate: str(followup.appointmentTemplate, 1500, current.followup.appointmentTemplate) || current.followup.appointmentTemplate,
+      balanceTemplate: str(followup.balanceTemplate, 1500, current.followup.balanceTemplate) || current.followup.balanceTemplate,
+      inquiryTemplate: str(followup.inquiryTemplate, 1500, current.followup.inquiryTemplate) || current.followup.inquiryTemplate,
     },
   }
 }

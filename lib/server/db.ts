@@ -285,6 +285,8 @@ create table if not exists tasks (
   done_at timestamptz
 );
 
+alter table tasks add column if not exists message text not null default '';
+
 create table if not exists users (
   id serial primary key,
   username text not null unique,
@@ -404,6 +406,14 @@ select q, a, c, a <> '', o from (values
   ('¿Cómo llego?', '', 'Institucional', 16)
 ) as v(q, a, c, o)
 where not exists (select 1 from faqs);
+`,
+  ],
+  [
+    "2026-11-mensajes-para-enviar",
+    `
+-- los avisos de saldo, consultas y continuidad ahora viven en «Mensajes» (con el texto ya redactado):
+-- se retiran los pendientes generados por el sistema con el formato anterior para que se vuelvan a crear ahí
+delete from tasks where not done and created_by = 'sistema' and (auto_key like 'saldo:%' or auto_key like 'consulta:%' or auto_key like 'continuar:%');
 `,
   ],
   [

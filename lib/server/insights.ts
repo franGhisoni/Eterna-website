@@ -1,6 +1,7 @@
 /** Seguimientos automáticos, alertas del panel y reportes. Todo se calcula con los datos reales de la base. */
 import { freeSlots } from "./agenda"
 import { db } from "./db"
+import { generateMessageReminders } from "./reminders"
 import { getSettings } from "./settings"
 import { addDays, todayAR } from "../time"
 
@@ -30,23 +31,6 @@ export async function generateFollowUps(): Promise<number> {
              'turnos', patient_id, id, null, (starts_at at time zone '${AR}')::date - 1
       from active where status = 'reserved' and starts_at between now() and now() + interval '48 hours'
       union all
-      select 'saldo:' || id, 'Recordar saldo pendiente', 'Sesión del ' || to_char(starts_at at time zone '${AR}', 'DD/MM') || ': resta ' || (fp - greatest(paid, deposit))::text,
-             'cobranza', patient_id, id, null, (now() at time zone '${AR}')::date
-      from active where status = 'done' and fp - greatest(paid, deposit) > 0
-      union all
-      select 'continuar:' || p.id || ':' || to_char(x.last_done, 'YYYYMMDD'), 'Consultar si desea continuar el tratamiento',
-             'Última sesión el ' || to_char(x.last_done at time zone '${AR}', 'DD/MM/YYYY') || ' y no tiene próximo turno', 'seguimiento', p.id, null, null, (now() at time zone '${AR}')::date
-      from patients p
-      join lateral (select max(starts_at) as last_done from bookings b where b.patient_id = p.id and b.status = 'done') x on true
-      where p.status in ('Activa','Nueva') and x.last_done is not null
-        and x.last_done < now() - make_interval(days => $2::int)
-        and not exists (select 1 from bookings b where b.patient_id = p.id and b.starts_at > now() and b.status in ('reserved','pending_payment','pending_review','confirmed'))
-      union all
-      select 'consulta:' || c.id, 'Hacer seguimiento de consulta', coalesce(nullif(c.contact_name, ''), 'Contacto sin nombre') || ' consultó por ' || c.interest || ' y no reservó',
-             'comercial', c.patient_id, null, c.id, (now() at time zone '${AR}')::date
-      from conversations c
-      where not c.booked and c.interest <> '' and c.status not in ('cerrada') and c.last_at < now() - interval '1 day' and c.last_at > now() - interval '30 days'
-      union all
       select 'ficha:' || p.id, 'Completar ficha de paciente', 'Falta el teléfono o el email', 'datos', p.id, null, null, null
       from patients p
       where p.status not in ('Archivada') and (p.phone = '' or p.email = '') and exists (select 1 from bookings b where b.patient_id = p.id and b.status = 'done')
@@ -54,9 +38,13 @@ export async function generateFollowUps(): Promise<number> {
     insert into tasks (title, description, kind, patient_id, booking_id, conversation_id, due_on, auto_key, created_by)
     select title, d, kind, patient_id, booking_id, conv, due, k, 'sistema' from candidates
     on conflict (auto_key) do nothing`,
-    [followup.depositHours, followup.continueAfterDays],
+    [followup.depositHours],
   )
-  return r.rowCount ?? 0
+  const messages = await generateMessageReminders().catch((e) => {
+    console.error("mensajes:", e instanceof Error ? e.message : e)
+    return 0
+  })
+  return (r.rowCount ?? 0) + messages
 }
 
 export async function alerts() {
