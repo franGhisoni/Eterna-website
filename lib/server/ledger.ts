@@ -33,6 +33,8 @@ export type AgendaItem = Booking & {
   pay_status: PayStatus
   /** seña que figura como PENDIENTE hasta que se registre cuánto se pagó y cuándo */
   deposit_pending: number
+  /** categoría del servicio (por ejemplo «HIFU» o «Depilación Definitiva») */
+  category: string
   rescheduled: number
   has_receipt: boolean
   state: string
@@ -114,7 +116,8 @@ const AGENDA_SELECT = `
     coalesce(b.final_price, b.price) as final_price,
     coalesce((select sum(amount) from payments p where p.booking_id = b.id), 0)::int as paid,
     (select count(*) from booking_events e where e.booking_id = b.id and e.kind = 'reprogramado')::int as rescheduled,
-    exists (select 1 from booking_receipts r where r.booking_id = b.id) as has_receipt
+    exists (select 1 from booking_receipts r where r.booking_id = b.id) as has_receipt,
+    coalesce((select s.category from services s where s.id = b.service_id), '') as category
   from bookings b`
 
 /** Estados en los que la seña se espera: figura pendiente hasta que se registre el pago (monto, medio y fecha). */

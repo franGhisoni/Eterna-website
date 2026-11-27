@@ -31,6 +31,7 @@ export type AgendaItem = {
   balance: number
   pay_status: "sin_cargo" | "sin_sena" | "sena_pendiente" | "sena_abonada" | "pago_parcial" | "pagado"
   deposit_pending: number
+  category?: string
   source: string
   zones: string
   professional: string
@@ -126,6 +127,21 @@ const promoActiveOn = (p: Promo, day: string) => p.active && (!p.starts_on || p.
 /* ───────────── Tarjeta de turno ───────────── */
 
 const DURATIONS = [15, 20, 30, 40, 45, 60, 75, 90, 120]
+
+/** Tipo de tratamiento de un turno, para filtrar y colorear: HIFU, depilación definitiva u otros. */
+export type TreatmentKind = "depilacion" | "hifu" | "otros"
+export const TREATMENT_LABEL: Record<TreatmentKind, string> = { depilacion: "Depilación definitiva", hifu: "HIFU", otros: "Otros" }
+export const TREATMENT_STYLE: Record<TreatmentKind, { dot: string; chip: string; cell: string }> = {
+  depilacion: { dot: "bg-primary", chip: "border-rose-200 bg-rose-50 text-rose-900", cell: "bg-rose-50 text-rose-900" },
+  hifu: { dot: "bg-violet-600", chip: "border-violet-200 bg-violet-50 text-violet-900", cell: "bg-violet-50 text-violet-900" },
+  otros: { dot: "bg-stone-400", chip: "border-stone-200 bg-stone-100 text-stone-700", cell: "bg-stone-100 text-stone-700" },
+}
+export function treatmentOf(b: Pick<AgendaItem, "category" | "service_name" | "zones">): TreatmentKind {
+  const t = `${b.category ?? ""} ${b.service_name} ${b.zones}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+  if (t.includes("hifu")) return "hifu"
+  if (/(depil|laser|cavado|axila|pierna|bozo|rostro|bikini|tira de cola|cuerpo completo|combo)/.test(t)) return "depilacion"
+  return "otros"
+}
 
 /** Mismo día del mes siguiente (si el mes es más corto, el último día). */
 function sameDayNextMonth(day: string): string {
@@ -263,7 +279,11 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
             b.name
           )}
         </p>
-        <p className="text-sm text-ink-2 xl:truncate">{b.service_name}</p>
+        <p className="flex items-center gap-1.5 text-sm text-ink-2 xl:truncate">
+          <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${TREATMENT_STYLE[treatmentOf(b)].dot}`} />
+          <span className="sr-only">{TREATMENT_LABEL[treatmentOf(b)]}: </span>
+          {b.service_name}
+        </p>
         <p className="mt-0.5 truncate text-xs text-ink-3">
           {[b.zones, b.professional && `con ${b.professional}`, SOURCE[b.source] ?? b.source].filter(Boolean).join(" · ")}
         </p>
@@ -307,7 +327,7 @@ export function AppointmentRow({ b, onEdit, onPay, onStatus, onPatient, onQuick,
 /* ───────────── Acciones comunes sobre turnos ───────────── */
 
 export function useAppointmentActions(flash: Flash, reload: () => void) {
-  const [editing, setEditing] = useState<{ booking?: AgendaItem; patient?: { id: number; name: string }; nextFrom?: AgendaItem } | null>(null)
+  const [editing, setEditing] = useState<{ booking?: AgendaItem; patient?: { id: number; name: string }; nextFrom?: AgendaItem; day?: string } | null>(null)
   const [paying, setPaying] = useState<{ booking?: AgendaItem; patient?: { id: number; name: string } } | null>(null)
 
   const changeStatus = async (b: AgendaItem, status: string) => {
@@ -356,6 +376,7 @@ export function useAppointmentActions(flash: Flash, reload: () => void) {
           booking={editing.booking}
           patient={editing.patient}
           nextFrom={editing.nextFrom}
+          dayHint={editing.day}
           flash={flash}
           onClose={() => setEditing(null)}
           onSaved={() => {
@@ -382,7 +403,7 @@ export function useAppointmentActions(flash: Flash, reload: () => void) {
   return {
     edit: (b: AgendaItem) => setEditing({ booking: b }),
     next: (b: AgendaItem) => b.patient_id && setEditing({ nextFrom: b, patient: { id: b.patient_id, name: b.name } }),
-    create: (patient?: { id: number; name: string }) => setEditing({ patient }),
+    create: (patient?: { id: number; name: string }, day?: string) => setEditing({ patient, day }),
     pay: (b: AgendaItem) => setPaying({ booking: b }),
     payPatient: (patient: { id: number; name: string }) => setPaying({ patient }),
     changeStatus,
@@ -442,11 +463,13 @@ export function PatientPicker({ value, onChange }: { value: { id: number; name: 
   )
 }
 
-export function AppointmentDialog({ booking, patient, nextFrom, flash, onClose, onSaved }: {
+export function AppointmentDialog({ booking, patient, nextFrom, dayHint, flash, onClose, onSaved }: {
   booking?: AgendaItem
   patient?: { id: number; name: string }
   /** agendar la próxima sesión de una persona a partir de la que acaba de tener */
   nextFrom?: AgendaItem
+  /** día elegido en el calendario: el turno nuevo arranca ese día */
+  dayHint?: string
   flash: Flash
   onClose: () => void
   onSaved: () => void
@@ -462,7 +485,7 @@ export function AppointmentDialog({ booking, patient, nextFrom, flash, onClose, 
     zones: src?.zones ?? "",
     professional: src?.professional ?? "",
     // la próxima sesión arranca 4 semanas después, mismo día de la semana y misma hora
-    start: booking ? toLocalInput(booking.starts_at) : nextFrom ? `${addDays(todayAR(new Date(nextFrom.starts_at)), 28)}T${hhmm(nextFrom.starts_at)}` : "",
+    start: booking ? toLocalInput(booking.starts_at) : nextFrom ? `${addDays(todayAR(new Date(nextFrom.starts_at)), 28)}T${hhmm(nextFrom.starts_at)}` : dayHint ? `${dayHint}T10:00` : "",
     durationMin: src ? Math.round((new Date(src.ends_at).getTime() - new Date(src.starts_at).getTime()) / 60_000) : 30,
     promoId: booking?.promo_id ?? 0,
     price: src?.price ?? 0,
@@ -877,6 +900,8 @@ export function PaymentDialog({ booking, patient, flash, onClose, onSaved }: {
 /* ───────────── Agenda general ───────────── */
 
 type Range = "dia" | "semana" | "mes" | "proximos"
+type Layout = "calendario" | "lista"
+type TreatFilter = "todos" | TreatmentKind
 
 function rangeOf(kind: Range, anchor: string): { from: string; to: string; label: string } {
   if (kind === "dia") return { from: anchor, to: anchor, label: formatDay(anchor) }
@@ -894,76 +919,240 @@ function rangeOf(kind: Range, anchor: string): { from: string; to: string; label
   return { from: anchor, to: addDays(anchor, 90), label: `Próximos 90 días desde el ${formatDay(anchor).toLowerCase()}` }
 }
 
+const WEEK_HEAD = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+const MAX_CHIPS = 3
+
+/** Grilla del mes: semanas completas de lunes a domingo (con los días de los meses vecinos). */
+function monthGrid(anchor: string): { days: string[]; from: string; to: string } {
+  const first = `${anchor.slice(0, 7)}-01`
+  const last = rangeOf("mes", anchor).to
+  const from = addDays(first, -((weekdayOf(first) + 6) % 7))
+  const to = addDays(last, 6 - ((weekdayOf(last) + 6) % 7))
+  const days: string[] = []
+  for (let d = from; d <= to; d = addDays(d, 1)) days.push(d)
+  return { days, from, to }
+}
+
+function CalendarMonth({ anchor, byDay, selected, onSelect }: { anchor: string; byDay: Map<string, AgendaItem[]>; selected: string; onSelect: (d: string) => void }) {
+  const { days } = monthGrid(anchor)
+  const today = todayAR()
+  return (
+    <div role="grid" aria-label="Calendario del mes" className="overflow-hidden rounded-lg border border-line bg-line">
+      <div role="row" className="grid grid-cols-7 gap-px">
+        {WEEK_HEAD.map((w) => (
+          <div key={w} role="columnheader" className="bg-surface px-1 py-2 text-center text-xs font-medium text-ink-2">
+            <span className="sm:hidden">{w[0]}</span>
+            <span className="hidden sm:inline">{w}</span>
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-px">
+        {days.map((d) => {
+          const list = byDay.get(d) ?? []
+          const inMonth = d.slice(0, 7) === anchor.slice(0, 7)
+          const isSel = d === selected
+          const isToday = d === today
+          const label = `${formatDay(d)}, ${list.length === 0 ? "sin turnos" : `${list.length} ${list.length === 1 ? "turno" : "turnos"}`}`
+          return (
+            <button
+              key={d}
+              type="button"
+              role="gridcell"
+              aria-selected={isSel}
+              aria-label={label}
+              aria-current={isToday ? "date" : undefined}
+              onClick={() => onSelect(d)}
+              className={[
+                "group flex min-h-[64px] flex-col items-stretch gap-1 p-1 text-left transition-colors sm:min-h-[92px] sm:p-1.5",
+                "focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+                inMonth ? "bg-white hover:bg-surface" : "bg-canvas text-ink-3 hover:bg-surface",
+                isSel ? "relative z-[1] ring-2 ring-inset ring-primary" : "",
+              ].join(" ")}
+            >
+              <span className="flex items-center justify-between">
+                <span className={`flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-semibold tabular-nums ${isToday ? "bg-primary text-white" : inMonth ? "text-ink" : "text-ink-3"}`}>{Number(d.slice(8))}</span>
+                {list.length > 0 && <span className="hidden text-[11px] font-medium tabular-nums text-ink-3 sm:inline">{list.length}</span>}
+              </span>
+              {/* escritorio: los turnos del día, con color por tratamiento */}
+              <span className="hidden flex-col gap-0.5 sm:flex">
+                {list.slice(0, MAX_CHIPS).map((b) => (
+                  <span key={b.id} className={`truncate rounded px-1 py-px text-[11px] leading-4 ${TREATMENT_STYLE[treatmentOf(b)].cell} ${["cancelled", "expired"].includes(b.state) ? "line-through opacity-60" : ""}`}>
+                    <span className="font-semibold tabular-nums">{hhmm(b.starts_at)}</span> {b.name}
+                  </span>
+                ))}
+                {list.length > MAX_CHIPS && <span className="px-1 text-[11px] font-medium text-ink-2">+{list.length - MAX_CHIPS} más</span>}
+              </span>
+              {/* celular: puntos de color (uno por turno) y cantidad */}
+              <span className="flex flex-wrap items-center gap-0.5 px-0.5 sm:hidden">
+                {list.slice(0, 4).map((b) => <span key={b.id} aria-hidden className={`h-1.5 w-1.5 rounded-full ${TREATMENT_STYLE[treatmentOf(b)].dot}`} />)}
+                {list.length > 4 && <span className="text-[10px] font-medium text-ink-3">+{list.length - 4}</span>}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function AgendaView({ flash, onPatient }: { flash: Flash; onPatient: (id: number) => void }) {
+  const [layout, setLayout] = useState<Layout>("calendario")
   const [kind, setKind] = useState<Range>("semana")
   const [anchor, setAnchor] = useState(todayAR())
+  const [selected, setSelected] = useState(todayAR())
   const [items, setItems] = useState<AgendaItem[] | null>(null)
   const [q, setQ] = useState("")
   const [statusFilter, setStatusFilter] = useState("activos")
   const [pro, setPro] = useState("")
-  const r = rangeOf(kind, anchor)
+  const [treat, setTreat] = useState<TreatFilter>("todos")
+
+  const calendar = layout === "calendario"
+  const r = calendar ? rangeOf("mes", anchor) : rangeOf(kind, anchor)
+  const grid = calendar ? monthGrid(anchor) : null
+  const from = grid?.from ?? r.from
+  const to = grid?.to ?? r.to
 
   const load = useCallback(() => {
-    api<{ bookings: AgendaItem[] }>(`/api/admin/bookings?desde=${r.from}&hasta=${r.to}`)
+    api<{ bookings: AgendaItem[] }>(`/api/admin/bookings?desde=${from}&hasta=${to}`)
       .then((d) => setItems(d.bookings))
       .catch(() => flash("No se pudo cargar la agenda", true))
-  }, [r.from, r.to, flash])
+  }, [from, to, flash])
   useEffect(load, [load])
   const actions = useAppointmentActions(flash, load)
 
   const shift = (n: number) => {
-    if (kind === "dia") setAnchor(addDays(anchor, n))
-    else if (kind === "semana") setAnchor(addDays(anchor, 7 * n))
-    else if (kind === "mes") {
+    if (calendar || kind === "mes") {
       const [y, m] = anchor.split("-").map(Number)
-      setAnchor(new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 10))
-    } else setAnchor(addDays(anchor, 90 * n))
+      const next = new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 10)
+      setAnchor(next)
+      if (calendar) setSelected(next.slice(0, 7) === todayAR().slice(0, 7) ? todayAR() : next)
+    } else if (kind === "dia") setAnchor(addDays(anchor, n))
+    else if (kind === "semana") setAnchor(addDays(anchor, 7 * n))
+    else setAnchor(addDays(anchor, 90 * n))
+  }
+  const goToday = () => {
+    setAnchor(todayAR())
+    setSelected(todayAR())
+  }
+  // al abrir un día, el detalle queda a la vista si estaba más abajo de la pantalla
+  const openDay = (d: string) => {
+    setSelected(d)
+    requestAnimationFrame(() => {
+      const el = document.getElementById("agenda-dia")
+      if (el && el.getBoundingClientRect().top > window.innerHeight * 0.55) el.scrollIntoView({ behavior: "smooth", block: "start" })
+    })
+  }
+  const pickDate = (d: string) => {
+    setAnchor(d)
+    setSelected(d)
   }
 
   const term = q.trim().toLowerCase()
-  const visible = (items ?? []).filter(
-    (b) =>
-      (statusFilter === "todos" || (statusFilter === "activos" ? b.state !== "cancelled" && b.state !== "expired" : b.state === statusFilter || (statusFilter === "deuda" && b.balance > 0 && b.state !== "cancelled"))) &&
-      (!pro || b.professional === pro) &&
-      (!term || `${b.name} ${b.phone} ${b.service_name} ${b.zones}`.toLowerCase().includes(term)),
-  )
+  const baseFilter = (b: AgendaItem) =>
+    (statusFilter === "todos" || (statusFilter === "activos" ? b.state !== "cancelled" && b.state !== "expired" : b.state === statusFilter || (statusFilter === "deuda" && b.balance > 0 && b.state !== "cancelled"))) &&
+    (!pro || b.professional === pro) &&
+    (!term || `${b.name} ${b.phone} ${b.service_name} ${b.zones}`.toLowerCase().includes(term))
+  const afterBase = (items ?? []).filter(baseFilter)
+  // conteo por tratamiento: se calcula antes de aplicar el filtro de tratamiento, para que los botones muestren cuántos hay de cada uno
+  const treatCounts = useMemo(() => {
+    const c: Record<TreatFilter, number> = { todos: 0, depilacion: 0, hifu: 0, otros: 0 }
+    for (const b of afterBase) {
+      if (calendar && (b.starts_at < `${r.from}T00:00:00-03:00` || b.starts_at > `${r.to}T23:59:59-03:00`)) continue
+      c.todos++
+      c[treatmentOf(b)]++
+    }
+    return c
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, statusFilter, pro, term, calendar, r.from, r.to])
+  const visible = afterBase.filter((b) => treat === "todos" || treatmentOf(b) === treat)
+
   const byDay = useMemo(() => {
     const m = new Map<string, AgendaItem[]>()
     for (const b of visible) {
       const d = todayAR(new Date(b.starts_at))
       m.set(d, [...(m.get(d) ?? []), b])
     }
-    return Array.from(m)
+    return m
   }, [visible])
+  const days = useMemo(() => Array.from(byDay).sort((a, b) => a[0].localeCompare(b[0])), [byDay])
   const pros = Array.from(new Set((items ?? []).map((b) => b.professional).filter(Boolean)))
-  const totals = visible
+  const inPeriod = calendar ? visible.filter((b) => todayAR(new Date(b.starts_at)).slice(0, 7) === anchor.slice(0, 7)) : visible
+  const totals = inPeriod
     .filter((b) => b.state !== "cancelled" && b.state !== "expired")
     .reduce((a, b) => ({ sold: a.sold + b.final_price, paid: a.paid + b.paid, due: a.due + b.balance }), { sold: 0, paid: 0, due: 0 })
-  const isToday = anchor === todayAR()
+  const isToday = calendar ? anchor.slice(0, 7) === todayAR().slice(0, 7) && selected === todayAR() : anchor === todayAR()
+  const filtered = !!term || statusFilter !== "activos" || !!pro || treat !== "todos"
+  const clearFilters = () => (setQ(""), setStatusFilter("activos"), setPro(""), setTreat("todos"))
+  const selectedList = byDay.get(selected) ?? []
+
+  const dayCard = (d: string, list: AgendaItem[], withNew = false) => (
+    <section key={d} id={withNew ? "agenda-dia" : undefined} aria-label={formatDay(d)} className="scroll-mt-16 rounded-xl border border-line bg-white shadow-card lg:scroll-mt-4">
+      <h2 className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-4 py-3 sm:px-5">
+        <span className={`text-[0.9375rem] font-semibold ${d === todayAR() ? "text-primary" : "text-ink"}`}>{d === todayAR() ? `Hoy · ${formatDay(d)}` : formatDay(d)}</span>
+        <span className="text-sm text-ink-3">{list.length} {list.length === 1 ? "turno" : "turnos"}</span>
+        {withNew && <button onClick={() => actions.create(undefined, d)} className={`${btnSmall} ml-auto`}><CalendarPlus /> Agendar este día</button>}
+      </h2>
+      {list.length > 0 ? (
+        <ul className="divide-y divide-line px-4 sm:px-5">
+          {list.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} onQuick={actions.quick} onNext={actions.next} />)}
+        </ul>
+      ) : (
+        <Empty
+          title={filtered ? "Ningún turno de este día coincide con los filtros" : "No hay turnos este día"}
+          action={filtered ? <button onClick={clearFilters} className={btnGhost}>Limpiar filtros</button> : <button onClick={() => actions.create(undefined, d)} className={btnGhost}>Agendar un turno</button>}
+        />
+      )}
+    </section>
+  )
 
   return (
     <section className="space-y-5">
       <PageHeader
         title="Agenda"
         description={<span className="hidden sm:inline">Todos los turnos (web, chatbot, administración y fichas de pacientes) en un solo lugar.</span>}
-        actions={<button onClick={() => actions.create()} className={btnPrimary}><CalendarPlus /> Nuevo turno</button>}
+        actions={<button onClick={() => actions.create(undefined, calendar ? selected : undefined)} className={btnPrimary}><CalendarPlus /> Nuevo turno</button>}
       />
 
       <div className="rounded-xl border border-line bg-white shadow-card">
-        {/* período */}
+        {/* vista y período */}
         <div className="flex flex-col gap-3 border-b border-line p-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => shift(-1)} className={`${btnIcon} h-9 w-9`} aria-label="Período anterior"><ChevronLeft /></button>
-            <button onClick={() => setAnchor(todayAR())} disabled={isToday} className={`${btnSmall} h-9 px-3`}>Hoy</button>
-            <button onClick={() => shift(1)} className={`${btnIcon} h-9 w-9`} aria-label="Período siguiente"><ChevronRight /></button>
+            <button onClick={() => shift(-1)} className={`${btnIcon} h-9 w-9`} aria-label={calendar ? "Mes anterior" : "Período anterior"}><ChevronLeft /></button>
+            <button onClick={goToday} disabled={isToday} className={`${btnSmall} h-9 px-3`}>Hoy</button>
+            <button onClick={() => shift(1)} className={`${btnIcon} h-9 w-9`} aria-label={calendar ? "Mes siguiente" : "Período siguiente"}><ChevronRight /></button>
             <p className="ml-1 min-w-0 text-[0.9375rem] font-semibold text-ink" aria-live="polite">{r.label}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Segmented label="Vista" value={kind} onChange={setKind} options={[["dia", "Día"], ["semana", "Semana"], ["mes", "Mes"], ["proximos", "Próximos"]]} />
-            <input type="date" value={anchor} onChange={(e) => e.target.value && setAnchor(e.target.value)} className={`${fieldInline} h-9 w-[9.5rem]`} aria-label="Ir a una fecha" />
+            <Segmented label="Formato" value={layout} onChange={setLayout} options={[["calendario", "Calendario"], ["lista", "Lista"]]} />
+            {!calendar && <Segmented label="Período" value={kind} onChange={setKind} options={[["dia", "Día"], ["semana", "Semana"], ["mes", "Mes"], ["proximos", "Próximos"]]} />}
+            <input type="date" value={calendar ? selected : anchor} onChange={(e) => e.target.value && pickDate(e.target.value)} className={`${fieldInline} h-9 w-[9.5rem]`} aria-label="Ir a una fecha" />
           </div>
         </div>
-        {/* filtros */}
+
+        {/* tratamiento */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-3 sm:px-4" role="group" aria-label="Filtrar por tratamiento">
+          <span className="text-xs font-medium text-ink-2">Tratamiento</span>
+          {(["todos", "depilacion", "hifu", "otros"] as TreatFilter[])
+            .filter((k) => k === "todos" || treatCounts[k] > 0 || treat === k)
+            .map((k) => {
+              const on = treat === k
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setTreat(k)}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors ${on ? "border-primary bg-primary text-white" : "border-line bg-white text-ink hover:bg-surface"}`}
+                >
+                  {k !== "todos" && <span aria-hidden className={`h-2 w-2 rounded-full ${on ? "bg-white" : TREATMENT_STYLE[k].dot}`} />}
+                  {k === "todos" ? "Todos" : TREATMENT_LABEL[k]}
+                  <span className={`tabular-nums ${on ? "text-white/80" : "text-ink-3"}`}>{treatCounts[k]}</span>
+                </button>
+              )
+            })}
+        </div>
+
+        {/* búsqueda y resumen */}
         <div className="grid gap-2 p-3 sm:grid-cols-[minmax(0,1fr)_200px] sm:p-4 lg:grid-cols-[minmax(0,320px)_200px_220px_1fr] lg:items-center">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" aria-hidden />
@@ -984,7 +1173,7 @@ export function AgendaView({ flash, onPatient }: { flash: Flash; onPatient: (id:
             <span className="hidden lg:block" />
           )}
           <dl className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm sm:col-span-2 lg:col-span-1 lg:justify-end">
-            <div className="flex gap-1"><dt className="text-ink-3">Turnos</dt><dd className="font-medium tabular-nums text-ink">{visible.length}</dd></div>
+            <div className="flex gap-1"><dt className="text-ink-3">Turnos</dt><dd className="font-medium tabular-nums text-ink">{inPeriod.length}</dd></div>
             <div className="flex gap-1"><dt className="text-ink-3">Vendido</dt><dd className="font-medium tabular-nums text-ink">{formatARS(totals.sold)}</dd></div>
             <div className="flex gap-1"><dt className="text-ink-3">Cobrado</dt><dd className="font-medium tabular-nums text-ink">{formatARS(totals.paid)}</dd></div>
             <div className="flex gap-1"><dt className="text-ink-3">Por cobrar</dt><dd className="font-semibold tabular-nums text-primary">{formatARS(totals.due)}</dd></div>
@@ -994,33 +1183,24 @@ export function AgendaView({ flash, onPatient }: { flash: Flash; onPatient: (id:
 
       {items === null ? (
         <Loading rows={4} />
-      ) : byDay.length === 0 ? (
+      ) : calendar ? (
+        <div className="space-y-5">
+          <div className="rounded-xl border border-line bg-white p-2 shadow-card sm:p-3">
+            <CalendarMonth anchor={anchor} byDay={byDay} selected={selected} onSelect={openDay} />
+          </div>
+          {dayCard(selected, selectedList, true)}
+        </div>
+      ) : days.length === 0 ? (
         <Card>
           <Empty
             icon={<CalendarPlus />}
-            title={term || statusFilter !== "activos" || pro ? "Ningún turno coincide con los filtros" : "No hay turnos en este período"}
-            text={term || statusFilter !== "activos" || pro ? "Probá con otra búsqueda o limpiá los filtros." : "Podés agendar uno o moverte a otro período."}
-            action={
-              term || statusFilter !== "activos" || pro ? (
-                <button onClick={() => (setQ(""), setStatusFilter("activos"), setPro(""))} className={btnGhost}>Limpiar filtros</button>
-              ) : (
-                <button onClick={() => actions.create()} className={btnGhost}>Agendar un turno</button>
-              )
-            }
+            title={filtered ? "Ningún turno coincide con los filtros" : "No hay turnos en este período"}
+            text={filtered ? "Probá con otra búsqueda o limpiá los filtros." : "Podés agendar uno o moverte a otro período."}
+            action={filtered ? <button onClick={clearFilters} className={btnGhost}>Limpiar filtros</button> : <button onClick={() => actions.create()} className={btnGhost}>Agendar un turno</button>}
           />
         </Card>
       ) : (
-        byDay.map(([d, list]) => (
-          <section key={d} aria-label={formatDay(d)} className="rounded-xl border border-line bg-white shadow-card">
-            <h2 className="flex items-baseline gap-2 border-b border-line px-4 py-3 sm:px-5">
-              <span className={`text-[0.9375rem] font-semibold ${d === todayAR() ? "text-primary" : "text-ink"}`}>{d === todayAR() ? `Hoy · ${formatDay(d)}` : formatDay(d)}</span>
-              <span className="text-sm text-ink-3">{list.length} {list.length === 1 ? "turno" : "turnos"}</span>
-            </h2>
-            <ul className="divide-y divide-line px-4 sm:px-5">
-              {list.map((b) => <AppointmentRow key={b.id} b={b} onEdit={actions.edit} onPay={actions.pay} onStatus={actions.changeStatus} onPatient={onPatient} onQuick={actions.quick} onNext={actions.next} />)}
-            </ul>
-          </section>
-        ))
+        days.map(([d, list]) => dayCard(d, list))
       )}
       {actions.dialogs}
     </section>
